@@ -6,11 +6,12 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T6 — image normalisation (domain gap).** Unblocked and next.
+> **T7 — pack to a single file.** Smaller than planned: CVL's words are already
+> cropped, so packing is a copy rather than an extraction.
 >
-> The full CVL release is now extracted. T7, T8, FID and CER are no longer blocked
-> by data -- but confirm with Amri before starting T7, since he asked to be the one
-> to say go.
+> T6 is functionally done and awaiting Amri's eye on
+> `outputs/normalisation/before_after.png`. One known weakness: the `dim` photo
+> still yields 18.7% ink against 4.5-8.5% for the others.
 
 ## Status
 
@@ -22,8 +23,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T3 | Synthetic IAM fixture generator | **done** | ruff clean · 49 tests · 20 writers / 1000 words in 5.7s |
 | T4 | IAM parser | **done** | ruff clean · 72 tests (5 skipped, awaiting real IAM) |
 | T5 | Writer-disjoint split | **done** | ruff clean · 111 tests · real CVL: 216/94 writers, 70.0/30.0% samples, 0 overlap |
-| T6 | Image normalisation (domain gap) | **next** | 5 photos received; note the squared paper |
-| T7 | Pack to a single LMDB file | unblocked | full CVL extracted; awaiting Amri's go-ahead |
+| T6 | Image normalisation (domain gap) | **done** | ruff clean · 200 tests · paper/ink/contrast spread 0 across conditions; ink% 38.0 -> 14.2 |
+| T7 | Pack to a single LMDB file | **next** | words already cropped, so this shrank a lot |
 | T8 | Dataset + collate | unblocked | depends on T7 |
 | T9 | Checkpoint save/resume | **done** | ruff clean · 132 tests · resume is bit-identical to an uninterrupted run |
 | T10 | Metrics: FID, CER, writer retrieval | unblocked | 98,179 words with transcriptions available |
