@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nib-synth"
+version = "0.1.0"
+description = "Few-shot handwriting synthesis: learn a writer's hand from a page, generate new text in it."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Omri Tzabari" }]
+keywords = ["handwriting", "generative-models", "computer-vision", "few-shot"]
+
+# Base dependencies: everything needed for the data pipeline (T1-T8).
+# Deliberately EXCLUDES torch -- see [project.optional-dependencies] below.
+dependencies = [
+    "numpy>=1.26",
+    "pillow>=10.0",
+    "omegaconf>=2.3",
+    "lxml>=5.0",
+    "tqdm>=4.66",
+    "opencv-python>=4.9",
+    "lmdb>=1.4",
+]
+
+[project.optional-dependencies]
+# Colab ships its own torch build, matched to its CUDA driver. Installing ours
+# on top would replace a working build with one that may not match the GPU.
+# So torch is an extra: install it locally, skip it on Colab.
+torch = ["torch>=2.2", "torchvision>=0.17"]
+track = ["wandb>=0.16"]
+api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes -- unused imports, undefined names
+    "I",   # isort -- import ordering
+    "UP",  # pyupgrade -- modern syntax
+    "B",   # bugbear -- likely bugs
+    "SIM", # simplify
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501", # line length is handled by the formatter, not the linter
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["nib"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"

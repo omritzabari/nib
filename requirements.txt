@@ -1,0 +1,8 @@
+# Dependencies are declared in pyproject.toml, which is the single source of truth.
+# This file exists so that `pip install -r requirements.txt` works for anyone who
+# expects it, and so the Colab notebook has one obvious line to run.
+#
+#   local:  pip install -e ".[torch,dev]"
+#   Colab:  pip install -e ".[dev]"      (torch is preinstalled there)
+
+-e .

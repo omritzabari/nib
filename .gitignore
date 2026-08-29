@@ -1,0 +1,47 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# --- Tooling ---
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+.idea/
+.vscode/
+
+# --- Project data ---
+# Datasets and model weights never go in git. They are large, they are not
+# source, and they are reproducible from scripts/ plus the config.
+data/*
+!data/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
+
+# Experiment tracking artifacts (the run history lives on the W&B server)
+wandb/
+outputs/
+runs/
+
+# --- Data formats that should never be committed by accident ---
+*.lmdb
+*.mdb
+*.pt
+*.pth
+*.ckpt
+*.tar
+*.tar.gz
+*.zip
+
+# --- OS noise ---
+.DS_Store
+Thumbs.db
+desktop.ini
