@@ -6,12 +6,12 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T7 — pack to a single file.** Smaller than planned: CVL's words are already
-> cropped, so packing is a copy rather than an extraction.
+> **T10 — the three metrics.** The longest remaining task. Amri has approved the
+> model downloads it needs: TrOCR (~1.4 GB, needs `transformers`) for the CER
+> baseline, and Inception (~100 MB) for FID.
 >
-> T6 is functionally done and awaiting Amri's eye on
-> `outputs/normalisation/before_after.png`. One known weakness: the `dim` photo
-> still yields 18.7% ink against 4.5-8.5% for the others.
+> Amri has given standing approval to work through to T12 without checking in,
+> stopping only for things that genuinely need him.
 
 ## Status
 
@@ -24,10 +24,10 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T4 | IAM parser | **done** | ruff clean · 72 tests (5 skipped, awaiting real IAM) |
 | T5 | Writer-disjoint split | **done** | ruff clean · 111 tests · real CVL: 216/94 writers, 70.0/30.0% samples, 0 overlap |
 | T6 | Image normalisation (domain gap) | **done** | ruff clean · 200 tests · paper/ink/contrast spread 0 across conditions; ink% 38.0 -> 14.2 |
-| T7 | Pack to a single LMDB file | **next** | words already cropped, so this shrank a lot |
-| T8 | Dataset + collate | unblocked | depends on T7 |
+| T7 | Pack to a single LMDB file | **done** | ruff clean · batched writes · compaction 8.00 GB -> 24.9 MB |
+| T8 | Dataset + collate | **done** | ruff clean · 19 tests · same-writer / different-word verified via style_keys |
 | T9 | Checkpoint save/resume | **done** | ruff clean · 132 tests · resume is bit-identical to an uninterrupted run |
-| T10 | Metrics: FID, CER, writer retrieval | unblocked | 98,179 words with transcriptions available |
+| T10 | Metrics: FID, CER, writer retrieval | **next** | downloads approved |
 | T11 | Experiment tracking + visual sample log | **done** | ruff clean · 157 tests · entity omri334jb configured |
 | T12 | Colab end-to-end smoke run | not started | **phase 1 exit criterion**, Amri runs |
 
