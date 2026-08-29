@@ -6,11 +6,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T4 — the IAM parser.** Not started.
->
-> Before writing it, read the warning in `src/nib/data/fixture.py`: the fixture's
-> XML schema is a *reconstruction* of IAM's, made without access to a real file.
-> The parser must be re-validated against genuine IAM XML once Amri downloads it.
+> **T5 — writer-disjoint split.** Not started. Nothing is blocking it.
 
 ## Status
 
@@ -20,7 +16,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T1 | Config system (typed schema, single path root) | **done** | ruff clean · 16 tests passing |
 | T2 | charset — char/index mapping | **done** | ruff clean · 31 tests passing |
 | T3 | Synthetic IAM fixture generator | **done** | ruff clean · 49 tests · 20 writers / 1000 words in 5.7s |
-| T4 | IAM parser | not started | fixture ready; real-data check still pending download |
+| T4 | IAM parser | **done** | ruff clean · 72 tests (5 skipped, awaiting real IAM) |
 | T5 | Writer-disjoint split | not started | |
 | T6 | Image normalisation (domain gap) | not started | needs Amri's phone photos |
 | T7 | Pack to a single LMDB file | not started | |
@@ -32,7 +28,11 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Waiting on Amri
 
-- [ ] IAM registration + download (`words.tgz`, `xml.tgz`, `ascii.tgz`) into `data/raw/iam/`
+- [ ] IAM download into `data/raw/iam/`. **The FKI site is currently down** -- links do not
+      load from either side. Not blocking: `tests/test_iam_real.py` activates by itself the
+      moment `data/raw/iam/xml/*.xml` exists, and validates the reconstructed schema then.
+      Priority order once reachable: `xml.tgz` (small, answers the schema question),
+      then `ascii.tgz`, then `words.tgz` (~1.2GB).
 - [ ] 4-5 phone photos of his own handwriting, deliberately imperfect, into `data/raw/personal/`
 - [ ] Weights & Biases username (the identifier only — never the API key)
 - [x] Commit permission granted (messages record what was done and what changed)

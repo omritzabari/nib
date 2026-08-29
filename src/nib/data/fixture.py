@@ -294,7 +294,16 @@ def build(
         for line_index, start in enumerate(range(0, len(words), 10)):
             chunk = words[start : start + 10]
             line_id = f"{form_id}-{line_index:02d}"
-            line = ET.SubElement(handwritten, "line", {"id": line_id, "text": " ".join(chunk)})
+            # IAM marks lines whose automatic word segmentation failed. Roughly one
+            # line in ten here, deterministically, so the parser's drop path is
+            # exercised by the fixture rather than only by real data.
+            digest = hashlib.sha256(f"{seed}:seg:{line_id}".encode()).digest()
+            segmentation = "err" if digest[0] < 26 else "ok"
+            line = ET.SubElement(
+                handwritten,
+                "line",
+                {"id": line_id, "text": " ".join(chunk), "segmentation": segmentation},
+            )
 
             for word_index, text in enumerate(chunk):
                 word_id = f"{line_id}-{word_index:02d}"
