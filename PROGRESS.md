@@ -6,7 +6,11 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T3 — synthetic fixture generator.** Not started. Nothing is blocking it.
+> **T4 — the IAM parser.** Not started.
+>
+> Before writing it, read the warning in `src/nib/data/fixture.py`: the fixture's
+> XML schema is a *reconstruction* of IAM's, made without access to a real file.
+> The parser must be re-validated against genuine IAM XML once Amri downloads it.
 
 ## Status
 
@@ -15,8 +19,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T0 | Repo skeleton, packaging, lint, git init | **done** | ruff clean · ruff format clean · pytest 2 passed |
 | T1 | Config system (typed schema, single path root) | **done** | ruff clean · 16 tests passing |
 | T2 | charset — char/index mapping | **done** | ruff clean · 31 tests passing |
-| T3 | Synthetic IAM fixture generator | not started | |
-| T4 | IAM parser | not started | blocked on real data for the full check only |
+| T3 | Synthetic IAM fixture generator | **done** | ruff clean · 49 tests · 20 writers / 1000 words in 5.7s |
+| T4 | IAM parser | not started | fixture ready; real-data check still pending download |
 | T5 | Writer-disjoint split | not started | |
 | T6 | Image normalisation (domain gap) | not started | needs Amri's phone photos |
 | T7 | Pack to a single LMDB file | not started | |
