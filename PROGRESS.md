@@ -6,8 +6,10 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T6 — image normalisation (domain gap).** Blocked on Amri's phone photos
-> in `data/raw/personal/`. Run `python scripts/check_data.py` to see current state.
+> **T11 — experiment tracking and the visual sample log.** Not blocked.
+>
+> T6 (normalisation) is the next task in plan order but is blocked on Amri's phone
+> photos in `data/raw/personal/`. Run `python scripts/check_data.py` for current state.
 
 ## Status
 
@@ -22,9 +24,9 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T6 | Image normalisation (domain gap) | **next** | needs Amri's phone photos |
 | T7 | Pack to a single LMDB file | not started | |
 | T8 | Dataset + collate | not started | |
-| T9 | Checkpoint save/resume | not started | |
+| T9 | Checkpoint save/resume | **done** | ruff clean · 132 tests · resume is bit-identical to an uninterrupted run |
 | T10 | Metrics: FID, CER, writer retrieval | not started | |
-| T11 | Experiment tracking + visual sample log | not started | needs W&B username |
+| T11 | Experiment tracking + visual sample log | **next** | W&B username still needed, but not blocking the code |
 | T12 | Colab end-to-end smoke run | not started | **phase 1 exit criterion**, Amri runs |
 
 ## Waiting on Amri
@@ -43,8 +45,9 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Open questions
 
-- **Python version.** Local is 3.13.2. Colab's version is unknown; run `!python --version`
-  in the first Colab session and pin to match. Does not bite until torch enters at T9/T12.
+- **Python version.** Local is 3.13.2 with torch 2.13.0+cpu (the CPU-only wheel, 122 MB).
+  Colab's Python and torch versions are unknown; run `!python --version` and
+  `import torch; torch.__version__` in the first Colab session and pin to match.
 - **Architecture decided (2026-08-29): option C.** Start from a released zero-shot
   checkpoint (Emuru line) rather than training a generator from scratch. Amri approved.
   Consequences: no per-writer training; the generator produces variable-length lines, so

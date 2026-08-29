@@ -27,6 +27,10 @@ dependencies = [
 # Colab ships its own torch build, matched to its CUDA driver. Installing ours
 # on top would replace a working build with one that may not match the GPU.
 # So torch is an extra: install it locally, skip it on Colab.
+#
+# Locally, prefer the CPU-only wheel -- 122 MB instead of several GB, and enough
+# for everything that is not an actual training run:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
 torch = ["torch>=2.2", "torchvision>=0.17"]
 track = ["wandb>=0.16"]
 api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
