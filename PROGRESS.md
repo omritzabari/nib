@@ -6,7 +6,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T2 — charset.** Not started. Nothing is blocking it.
+> **T3 — synthetic fixture generator.** Not started. Nothing is blocking it.
 
 ## Status
 
@@ -14,7 +14,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 |----|------|--------|-------------|
 | T0 | Repo skeleton, packaging, lint, git init | **done** | ruff clean · ruff format clean · pytest 2 passed |
 | T1 | Config system (typed schema, single path root) | **done** | ruff clean · 16 tests passing |
-| T2 | charset — char/index mapping | not started | |
+| T2 | charset — char/index mapping | **done** | ruff clean · 31 tests passing |
 | T3 | Synthetic IAM fixture generator | not started | |
 | T4 | IAM parser | not started | blocked on real data for the full check only |
 | T5 | Writer-disjoint split | not started | |
