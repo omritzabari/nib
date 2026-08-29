@@ -1,0 +1,26 @@
+# Base configuration. Every other config file overrides this one.
+#
+# paths.root is deliberately absent: load_config discovers the repository root by
+# walking up to pyproject.toml. Override it when that is wrong:
+#
+#   local:  python scripts/train.py
+#   Colab:  python scripts/train.py paths.root=/content/nib
+#
+# Never put an absolute path in a file under src/. There is a test that fails if
+# you do -- see tests/test_no_hardcoded_paths.py
+
+seed: 1337
+
+data:
+  image_height: 64
+  charset: english
+
+fixture:
+  num_writers: 20
+  words_per_writer: 50
+  seed: 0
+
+tracking:
+  entity: null      # your W&B username. null = not set yet.
+  project: nib
+  mode: online      # online | offline | disabled

@@ -6,14 +6,14 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T1 — the config system.** Not started. Nothing is blocking it.
+> **T2 — charset.** Not started. Nothing is blocking it.
 
 ## Status
 
 | ID | Task | Status | Verified by |
 |----|------|--------|-------------|
 | T0 | Repo skeleton, packaging, lint, git init | **done** | ruff clean · ruff format clean · pytest 2 passed |
-| T1 | Config system (typed schema, single path root) | not started | |
+| T1 | Config system (typed schema, single path root) | **done** | ruff clean · 16 tests passing |
 | T2 | charset — char/index mapping | not started | |
 | T3 | Synthetic IAM fixture generator | not started | |
 | T4 | IAM parser | not started | blocked on real data for the full check only |
@@ -31,20 +31,19 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 - [ ] IAM registration + download (`words.tgz`, `xml.tgz`, `ascii.tgz`) into `data/raw/iam/`
 - [ ] 4-5 phone photos of his own handwriting, deliberately imperfect, into `data/raw/personal/`
 - [ ] Weights & Biases username (the identifier only — never the API key)
-- [ ] Decide whether Claude commits automatically after each verified task
+- [x] Commit permission granted (messages record what was done and what changed)
 
 ## Open questions
 
 - **Python version.** Local is 3.13.2. Colab's version is unknown; run `!python --version`
   in the first Colab session and pin to match. Does not bite until torch enters at T9/T12.
-- **Architecture review: both surveys returned. AWAITING AMRI'S DECISION.**
-  See `docs/research-2026-08-28-vatr-line.md` and `docs/research-2026-08-28-diffusion-vs-gan.md`.
-  Three options on the table: (A) train VATr++ ourselves, closest to the original brief and
-  comfortably within the compute envelope; (B) fine-tune DiffusionPen, better FID but the
-  released code is closed-set and buggy; (C) start from Emuru's released zero-shot checkpoint,
-  which needs no training at all and generates variable-length lines natively.
-  Claude recommends **C with A as a documented fallback and comparison baseline**.
-  **Do not begin phase 2 work until Amri chooses.** T1-T3 are needed under every option.
+- **Architecture decided (2026-08-29): option C.** Start from a released zero-shot
+  checkpoint (Emuru line) rather than training a generator from scratch. Amri approved.
+  Consequences: no per-writer training; the generator produces variable-length lines, so
+  word-to-line assembly leaves the layout engine's scope; IAM becomes evaluation data, not
+  training data; generation resolution is 64px, upscaled afterwards. VATr++ stays as a
+  documented fallback and comparison baseline. Surveys and their unverified-claims lists are
+  in `docs/`.
 - **IAM licence is non-commercial research use.** Fine for a portfolio project; a blocker if
   this ever ships as a product. Flagged early on purpose.
 
