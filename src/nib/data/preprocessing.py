@@ -350,3 +350,28 @@ def _to_gray(image: np.ndarray) -> np.ndarray:
     if image.ndim == 2:
         return image
     return image.min(axis=2).astype(np.uint8)
+
+
+def normalise_word(image: np.ndarray, height: int, config: NormaliseConfig = DEFAULT) -> np.ndarray:
+    """Normalise an already-cropped word image to a fixed height.
+
+    Deliberately *not* :func:`normalise_page`. A word crop from a dataset is a few
+    dozen pixels tall, already cut from a flat scan: there is no page to find, no
+    perspective to undo, and no ruling long enough to detect. Running the page
+    pipeline on one would at best waste time and at worst have the background
+    estimator swallow the whole word, since the strokes are then a large fraction
+    of the image.
+
+    Height is fixed and width follows the aspect ratio, which is what keeps the
+    variable-width collate path meaningful.
+    """
+    gray = _to_gray(image)
+    if gray.size == 0:
+        raise ValueError("cannot normalise an empty image")
+
+    gray = normalise_ink(gray, config)
+
+    h, w = gray.shape
+    width = max(1, round(w * height / h))
+    interpolation = cv2.INTER_AREA if h > height else cv2.INTER_CUBIC
+    return cv2.resize(gray, (width, height), interpolation=interpolation)
