@@ -6,11 +6,11 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T6 — image normalisation (domain gap).** Unblocked: 5 photos have arrived.
+> **T6 — image normalisation (domain gap).** Unblocked and next.
 >
-> **Do not start T7, T8, FID or CER.** Amri asked to wait for the full CVL release
-> (`cvl-database-1-1.zip`, 4.2 GB) rather than build them on page-level data and redo
-> the work. He will say when it is uploaded.
+> The full CVL release is now extracted. T7, T8, FID and CER are no longer blocked
+> by data -- but confirm with Amri before starting T7, since he asked to be the one
+> to say go.
 
 ## Status
 
@@ -23,10 +23,10 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T4 | IAM parser | **done** | ruff clean · 72 tests (5 skipped, awaiting real IAM) |
 | T5 | Writer-disjoint split | **done** | ruff clean · 111 tests · real CVL: 216/94 writers, 70.0/30.0% samples, 0 overlap |
 | T6 | Image normalisation (domain gap) | **next** | 5 photos received; note the squared paper |
-| T7 | Pack to a single LMDB file | **on hold** | waiting for full CVL, by Amri's request |
-| T8 | Dataset + collate | **on hold** | waiting for full CVL, by Amri's request |
+| T7 | Pack to a single LMDB file | unblocked | full CVL extracted; awaiting Amri's go-ahead |
+| T8 | Dataset + collate | unblocked | depends on T7 |
 | T9 | Checkpoint save/resume | **done** | ruff clean · 132 tests · resume is bit-identical to an uninterrupted run |
-| T10 | Metrics: FID, CER, writer retrieval | partly on hold | writer retrieval is doable now; FID and CER wait for full CVL |
+| T10 | Metrics: FID, CER, writer retrieval | unblocked | 98,179 words with transcriptions available |
 | T11 | Experiment tracking + visual sample log | **done** | ruff clean · 157 tests · entity omri334jb configured |
 | T12 | Colab end-to-end smoke run | not started | **phase 1 exit criterion**, Amri runs |
 
@@ -39,9 +39,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
       then `ascii.tgz`, then `words.tgz` (~1.2GB).
 - [x] 5 phone photos received. **They are on squared/graph paper** -- grid lines will be
       read as ink by naive binarisation. Ruled-line removal is now part of T6's scope.
-- [ ] `cvl-database-1-1.zip` (4.2 GB, same Zenodo page) into `data/raw/cvl/` -- the cropped
-      release has images only. Without the full one there is no CER baseline and no exact
-      word cropping for FID.
+- [x] `cvl-database-1-1.zip` downloaded and extracted. 99,904 cropped word images with
+      transcriptions in their filenames; 98,179 usable after filtering.
 - [ ] Weights & Biases username (the identifier only — never the API key)
 - [x] Commit permission granted (messages record what was done and what changed)
 

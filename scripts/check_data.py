@@ -17,6 +17,7 @@ from pathlib import Path
 
 from nib.config import get_path, load_config
 from nib.data import cvl
+from nib.data.cvl_words import scan_words
 from nib.data.split import WriterSplit
 
 OK = "  ok  "
@@ -57,16 +58,31 @@ def check_cvl(root: Path) -> list[Check]:
         )
     ]
 
-    checks.append(
-        Check(
-            "CVL annotations",
-            OK if inv.has_annotations else MISSING,
-            "word boxes and transcriptions present"
-            if inv.has_annotations
-            else "no XML found. Needs cvl-database-1-1.zip (4.2 GB) -- without it "
-            "there is no CER baseline and no exact word cropping.",
+    # The XML in the full release holds only line geometry -- no text at all.
+    # What actually carries the transcriptions is the cropped word images, whose
+    # filenames encode them. So that is what gets checked.
+    full = root / "cvl-database-1-1"
+    if full.is_dir():
+        words, report = scan_words(root)
+        checks.append(
+            Check(
+                "CVL words",
+                OK if len(words) > 90000 else PARTIAL,
+                f"{report.kept} cropped words with transcriptions, "
+                f"{len(report.writers)} writers "
+                f"({report.total_seen - report.kept} excluded, see the report)",
+            )
         )
-    )
+    else:
+        checks.append(
+            Check(
+                "CVL words",
+                MISSING,
+                "the full release is not extracted. Needs cvl-database-1-1.zip "
+                "(4.2 GB) -- it carries the cropped word images whose filenames "
+                "hold the transcriptions. Without it there is no CER baseline.",
+            )
+        )
 
     if inv.unparsed:
         checks.append(
@@ -150,8 +166,8 @@ CAPABILITIES = [
     ("writer retrieval metric", ["CVL images"]),
     ("deception study controls", ["CVL images"]),
     ("normalisation work (T6)", ["CVL images", "your handwriting"]),
-    ("FID reference set", ["CVL images", "CVL annotations"]),
-    ("CER baseline", ["CVL annotations"]),
+    ("FID reference set", ["CVL words"]),
+    ("CER baseline", ["CVL words"]),
 ]
 
 

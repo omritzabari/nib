@@ -86,16 +86,33 @@ def test_pages_are_returned_in_a_stable_order(tmp_path):
     assert ids == sorted(ids)
 
 
+def test_word_and_line_crops_are_not_mistaken_for_unparsed_pages(tmp_path):
+    """The full release ships 113,000 word and line crops alongside the pages.
+    Flagging them as unparsed would make the warning meaningless."""
+    pages = tmp_path / "cvl-database-1-1" / "testset" / "pages"
+    make_tree(pages, ["0052-1.tif"])
+    make_tree(
+        tmp_path / "cvl-database-1-1" / "testset" / "words" / "0052", ["0052-1-0-0-Imagine.tif"]
+    )
+    make_tree(tmp_path / "cvl-database-1-1" / "testset" / "lines" / "0052", ["0052-1-0.tif"])
+
+    inv = cvl.scan(tmp_path)
+    assert len(inv.pages) == 1
+    assert inv.unparsed == [], f"false alarm on {inv.unparsed}"
+
+
 def test_missing_directory_raises(tmp_path):
     with pytest.raises(FileNotFoundError, match="no CVL directory"):
         cvl.scan(tmp_path / "nope")
 
 
-def test_annotations_are_reported_as_absent_when_there_is_no_xml(tmp_path):
+def test_the_cropped_only_release_is_reported_as_such(tmp_path):
+    """has_annotations means "the full release is here", not "transcriptions are
+    here" -- CVL's XML carries line geometry and no text at all."""
     make_tree(tmp_path, ["0001-1-cropped.tif"])
     inv = cvl.scan(tmp_path)
     assert inv.has_annotations is False
-    assert "NO" in inv.summary()
+    assert "pages only" in inv.summary()
 
 
 def test_group_by_writer_partitions_everything(tmp_path):

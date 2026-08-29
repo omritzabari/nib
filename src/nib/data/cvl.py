@@ -12,11 +12,17 @@ Two releases exist and they carry different things:
     No transcriptions, no word boxes.
 
 ``cvl-database-1-1.zip`` (4.2 GB)
-    The full release, with per-word bounding boxes and transcriptions in XML.
+    The full release: the same pages, plus ~99,900 pre-cropped **word** images and
+    ~13,800 line images, split into CVL's own writer-disjoint ``trainset`` and
+    ``testset``.
 
-This module reads whichever is present and says plainly what is missing. Every
-writer copied the same fixed passages, so a transcription belongs to a *text id*
-rather than to an image -- seven passages cover all 1604 pages.
+    Its ``_attributes.xml`` files, despite the name, contain **no text** -- only
+    line geometry, in PRImA PAGE format. The transcriptions live in the word image
+    *filenames*. That is why :mod:`nib.data.cvl_words` exists and why this module
+    does not try to parse XML.
+
+This module handles pages only. Word-level reading lives in
+:mod:`nib.data.cvl_words`.
 
 Observed in the cropped release and not explained in the documentation: text ids
 run 1, 2, 3, 4, 6, 7, 8. **There is no text 5.** 283 writers produced texts
@@ -54,7 +60,7 @@ class CvlInventory:
     root: Path
     pages: list[CvlPage]
     unparsed: list[Path]
-    has_annotations: bool
+    has_annotations: bool  # full release present; NOT "transcriptions present"
 
     @property
     def writers(self) -> set[str]:
@@ -76,7 +82,9 @@ class CvlInventory:
             f"writers         {len(self.writers)}",
             f"text ids        {sorted(self.texts, key=_as_int)}",
             f"pages/writer    {dict(sorted(spread.items()))}",
-            f"transcriptions  {'yes' if self.has_annotations else 'NO -- full release not present'}",
+            # XML presence signals the full release, not transcriptions -- the XML
+            # holds line geometry only. See the module docstring.
+            f"full release    {'yes' if self.has_annotations else 'no -- pages only'}",
         ]
         if self.unparsed:
             lines.append(f"unparsed files  {len(self.unparsed)} (first: {self.unparsed[0].name})")
@@ -103,6 +111,12 @@ def scan(root: Path | str) -> CvlInventory:
 
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in {".tif", ".tiff", ".png", ".jpg"}:
+            continue
+        # The full release also ships cropped word and line images. They belong to
+        # nib.data.cvl_words, and reporting them here as "unparsed" would fire a
+        # warning on 113,000 perfectly healthy files -- which trains you to ignore
+        # the warning, and then it is worthless when something is genuinely wrong.
+        if {"words", "lines"} & set(path.parts):
             continue
         match = _CROPPED.match(path.name) or _PLAIN.match(path.name)
         if match is None:
