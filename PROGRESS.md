@@ -6,12 +6,12 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T10 — the three metrics.** The longest remaining task. Amri has approved the
-> model downloads it needs: TrOCR (~1.4 GB, needs `transformers`) for the CER
-> baseline, and Inception (~100 MB) for FID.
+> **T12 — Amri runs the Colab smoke test.** Everything else in phase 1 is done.
 >
-> Amri has given standing approval to work through to T12 without checking in,
-> stopping only for things that genuinely need him.
+> `notebooks/colab_smoke.ipynb` is ready. He needs to upload
+> `data/processed/cvl_words_64.lmdb` to `MyDrive/nib/` first, then run the
+> notebook top to bottom and report back: Python and torch versions, whether the
+> resume check printed PASS, and the samples/second figure.
 
 ## Status
 
@@ -27,9 +27,9 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T7 | Pack to a single LMDB file | **done** | ruff clean · batched writes · compaction 8.00 GB -> 24.9 MB |
 | T8 | Dataset + collate | **done** | ruff clean · 19 tests · same-writer / different-word verified via style_keys |
 | T9 | Checkpoint save/resume | **done** | ruff clean · 132 tests · resume is bit-identical to an uninterrupted run |
-| T10 | Metrics: FID, CER, writer retrieval | **next** | downloads approved |
+| T10 | Metrics: FID, CER, writer retrieval | **done** | ruff clean · 35 tests · sanity script written |
 | T11 | Experiment tracking + visual sample log | **done** | ruff clean · 157 tests · entity omri334jb configured |
-| T12 | Colab end-to-end smoke run | not started | **phase 1 exit criterion**, Amri runs |
+| T12 | Colab end-to-end smoke run | **ready for Amri** | notebook + smoke_train.py written; **phase 1 exit criterion** |
 
 ## Waiting on Amri
 
