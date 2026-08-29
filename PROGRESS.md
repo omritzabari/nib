@@ -6,7 +6,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T5 — writer-disjoint split.** Not started. Nothing is blocking it.
+> **T6 — image normalisation (domain gap).** Blocked on Amri's phone photos
+> in `data/raw/personal/`. Run `python scripts/check_data.py` to see current state.
 
 ## Status
 
@@ -17,8 +18,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T2 | charset — char/index mapping | **done** | ruff clean · 31 tests passing |
 | T3 | Synthetic IAM fixture generator | **done** | ruff clean · 49 tests · 20 writers / 1000 words in 5.7s |
 | T4 | IAM parser | **done** | ruff clean · 72 tests (5 skipped, awaiting real IAM) |
-| T5 | Writer-disjoint split | not started | |
-| T6 | Image normalisation (domain gap) | not started | needs Amri's phone photos |
+| T5 | Writer-disjoint split | **done** | ruff clean · 111 tests · real CVL: 216/94 writers, 70.0/30.0% samples, 0 overlap |
+| T6 | Image normalisation (domain gap) | **next** | needs Amri's phone photos |
 | T7 | Pack to a single LMDB file | not started | |
 | T8 | Dataset + collate | not started | |
 | T9 | Checkpoint save/resume | not started | |
@@ -34,6 +35,9 @@ Live task state. Updated at the end of every task. A fresh session reads this to
       Priority order once reachable: `xml.tgz` (small, answers the schema question),
       then `ascii.tgz`, then `words.tgz` (~1.2GB).
 - [ ] 4-5 phone photos of his own handwriting, deliberately imperfect, into `data/raw/personal/`
+- [ ] `cvl-database-1-1.zip` (4.2 GB, same Zenodo page) into `data/raw/cvl/` -- the cropped
+      release has images only. Without the full one there is no CER baseline and no exact
+      word cropping for FID.
 - [ ] Weights & Biases username (the identifier only — never the API key)
 - [x] Commit permission granted (messages record what was done and what changed)
 
