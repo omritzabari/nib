@@ -21,6 +21,7 @@ fixture:
   seed: 0
 
 tracking:
-  entity: null      # your W&B username. null = not set yet.
+  entity: omri334jb # W&B username. Public identifier, not a secret.
+                    # The API key belongs in the WANDB_API_KEY env var, never here.
   project: nib
   mode: online      # online | offline | disabled

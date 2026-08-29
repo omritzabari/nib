@@ -6,10 +6,11 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **T11 — experiment tracking and the visual sample log.** Not blocked.
+> **T6 — image normalisation (domain gap).** Unblocked: 5 photos have arrived.
 >
-> T6 (normalisation) is the next task in plan order but is blocked on Amri's phone
-> photos in `data/raw/personal/`. Run `python scripts/check_data.py` for current state.
+> **Do not start T7, T8, FID or CER.** Amri asked to wait for the full CVL release
+> (`cvl-database-1-1.zip`, 4.2 GB) rather than build them on page-level data and redo
+> the work. He will say when it is uploaded.
 
 ## Status
 
@@ -21,12 +22,12 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T3 | Synthetic IAM fixture generator | **done** | ruff clean · 49 tests · 20 writers / 1000 words in 5.7s |
 | T4 | IAM parser | **done** | ruff clean · 72 tests (5 skipped, awaiting real IAM) |
 | T5 | Writer-disjoint split | **done** | ruff clean · 111 tests · real CVL: 216/94 writers, 70.0/30.0% samples, 0 overlap |
-| T6 | Image normalisation (domain gap) | **next** | needs Amri's phone photos |
-| T7 | Pack to a single LMDB file | not started | |
-| T8 | Dataset + collate | not started | |
+| T6 | Image normalisation (domain gap) | **next** | 5 photos received; note the squared paper |
+| T7 | Pack to a single LMDB file | **on hold** | waiting for full CVL, by Amri's request |
+| T8 | Dataset + collate | **on hold** | waiting for full CVL, by Amri's request |
 | T9 | Checkpoint save/resume | **done** | ruff clean · 132 tests · resume is bit-identical to an uninterrupted run |
-| T10 | Metrics: FID, CER, writer retrieval | not started | |
-| T11 | Experiment tracking + visual sample log | **next** | W&B username still needed, but not blocking the code |
+| T10 | Metrics: FID, CER, writer retrieval | partly on hold | writer retrieval is doable now; FID and CER wait for full CVL |
+| T11 | Experiment tracking + visual sample log | **done** | ruff clean · 157 tests · entity omri334jb configured |
 | T12 | Colab end-to-end smoke run | not started | **phase 1 exit criterion**, Amri runs |
 
 ## Waiting on Amri
@@ -36,7 +37,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
       moment `data/raw/iam/xml/*.xml` exists, and validates the reconstructed schema then.
       Priority order once reachable: `xml.tgz` (small, answers the schema question),
       then `ascii.tgz`, then `words.tgz` (~1.2GB).
-- [ ] 4-5 phone photos of his own handwriting, deliberately imperfect, into `data/raw/personal/`
+- [x] 5 phone photos received. **They are on squared/graph paper** -- grid lines will be
+      read as ink by naive binarisation. Ruled-line removal is now part of T6's scope.
 - [ ] `cvl-database-1-1.zip` (4.2 GB, same Zenodo page) into `data/raw/cvl/` -- the cropped
       release has images only. Without the full one there is no CER baseline and no exact
       word cropping for FID.
