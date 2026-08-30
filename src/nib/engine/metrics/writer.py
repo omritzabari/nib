@@ -120,6 +120,14 @@ class WriterRetrieval:
     ) -> RetrievalResult:
         """Score queries against the gallery.
 
+        .. note::
+           The score depends on how many samples each gallery writer has. Measured
+           with the same embedding on the same writers: 66.9% top-1 with twelve
+           words per writer, 53.5% with one or two. Fewer samples make a thinner
+           average and a weaker representation. Two runs are only comparable at
+           equal gallery depth -- and the effect is real rather than an artefact,
+           since a user who uploads one line gets a thinner gallery too.
+
         Queries whose true writer is not in the gallery are refused rather than
         counted as failures: they are unanswerable, and folding them in would
         depress the score for a reason unrelated to style.

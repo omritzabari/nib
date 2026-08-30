@@ -31,7 +31,11 @@ dependencies = [
 # Locally, prefer the CPU-only wheel -- 122 MB instead of several GB, and enough
 # for everything that is not an actual training run:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
-torch = ["torch>=2.2", "torchvision>=0.17"]
+# Pinned to Colab's build, not to the newest. Colab is where training actually
+# happens and its torch is matched to its CUDA driver, so it is the version that
+# cannot move. A checkpoint written by a newer torch may not load in an older one,
+# and the traffic in this project runs both ways.
+torch = ["torch==2.11.*", "torchvision==0.26.*"]
 track = ["wandb>=0.16"]
 api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4"]
