@@ -6,19 +6,16 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **Two things: T12 (Amri, Colab) and fixing writer retrieval (me).**
+> **Phase 1 is complete.** All 13 tasks done; T12 passed on a real T4 on 2026-08-30:
+> bit-identical resume (0.000e+00), 469 MB copied from Drive in 6.1s, and 614
+> samples/second through the data pipeline -- three to twelve times faster than a
+> real model will consume them, so the GPU will be the bottleneck, not the data.
 >
-> Writer retrieval scores 3.7% top-1 on REAL handwriting, measured. ImageNet
-> Inception features describe photo texture, not handwriting. It needs a small
-> embedding trained on the 216 training-split writers -- the 'phase 1 is not
-> really zero model' point, now with a number behind it.
+> **One thing is still open and it is mine:** the writer-retrieval metric. Wired to
+> ImageNet Inception it scores 3.7% top-1 on real handwriting, against a 30% floor.
+> A purpose-trained embedding is in progress. FID and CER are verified and usable.
 >
-> **T12 — Amri runs the Colab smoke test.** Everything else in phase 1 is done.
->
-> `notebooks/colab_smoke.ipynb` is ready. He needs to upload
-> `data/processed/cvl_words_64.lmdb` to `MyDrive/nib/` first, then run the
-> notebook top to bottom and report back: Python and torch versions, whether the
-> resume check printed PASS, and the samples/second figure.
+> **Phase 2 begins when Amri says so:** connecting the released Emuru checkpoint.
 
 ## Status
 
@@ -36,7 +33,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T9 | Checkpoint save/resume | **done** | ruff clean · 132 tests · resume is bit-identical to an uninterrupted run |
 | T10 | Metrics: FID, CER, writer retrieval | **2 of 3 verified** | FID 0.0000 self-check, floor 33.72 · CER 12.33% on real lines · **writer retrieval broken at 3.7% top-1** |
 | T11 | Experiment tracking + visual sample log | **done** | ruff clean · 157 tests · entity omri334jb configured |
-| T12 | Colab end-to-end smoke run | **ready for Amri** | notebook + smoke_train.py written; **phase 1 exit criterion** |
+| T12 | Colab end-to-end smoke run | **done** | T4, 2026-08-30: bit-identical resume, 6.1s Drive copy, 614 samples/s |
 
 ## Waiting on Amri
 
