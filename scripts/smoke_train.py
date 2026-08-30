@@ -112,6 +112,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
+        "--track",
+        action="store_true",
+        help="send this run to W&B; off by default so the smoke test never "
+        "blocks on a login prompt",
+    )
+    parser.add_argument(
         "--verify-resume",
         action="store_true",
         help="run twice, once interrupted, and compare the weights",
@@ -139,7 +145,21 @@ def main(argv: list[str] | None = None) -> int:
     manager = ckpt.CheckpointManager(
         get_path(cfg, "checkpoints") / "smoke", every_n_steps=max(1, args.steps // 4)
     )
-    tracker = make_tracker(cfg, get_path(cfg, "outputs") / "smoke", run_name="smoke")
+    # Offline unless explicitly asked otherwise. A plumbing test must never block
+    # on an interactive login prompt: wandb.init() asks for an account on a fresh
+    # machine, and a Colab cell that sits waiting for keyboard input is exactly
+    # how an unattended run hangs forever. Pass --track to opt in.
+    tracking_cfg = (
+        cfg
+        if args.track
+        else load_config(
+            repo / "configs" / "base.yaml",
+            overrides=[*overrides, "tracking.mode=offline"],
+        )
+    )
+    tracker = make_tracker(tracking_cfg, get_path(cfg, "outputs") / "smoke", run_name="smoke")
+    if not args.track:
+        print("tracking      offline (pass --track to send this run to W&B)")
 
     ckpt.seed_everything(int(cfg.seed))
     model = DummyModel(dataset.height).to(args.device)
