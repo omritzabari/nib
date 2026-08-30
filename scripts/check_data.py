@@ -96,6 +96,38 @@ def check_cvl(root: Path) -> list[Check]:
     return checks
 
 
+def check_pack(cfg) -> Check:
+    """The packed dataset, which is all a training machine actually needs.
+
+    On Colab only the pack is copied across -- the 5 GB of raw CVL and the
+    personal photos stay on the laptop, and there is no reason for them to be
+    anywhere else. Reporting their absence as a failure there would print red on
+    every run, which teaches you to ignore the check entirely.
+    """
+    from nib.data.pack import PackReader, is_complete
+
+    path = get_path(cfg, "processed") / f"cvl_words_{cfg.data.image_height}.lmdb"
+    if not path.exists():
+        return Check(
+            "packed dataset",
+            MISSING,
+            f"not at {path}. Build it with scripts/build_index.py, or copy it here.",
+        )
+    if not is_complete(path):
+        return Check(
+            "packed dataset",
+            PARTIAL,
+            f"{path} exists but has no header -- still being written, or truncated.",
+        )
+    with PackReader(path) as reader:
+        return Check(
+            "packed dataset",
+            OK,
+            f"{len(reader)} words, {reader.header.writers} writers, "
+            f"{reader.header.height}px, {reader.data_size_bytes() / 1024**2:.0f} MB",
+        )
+
+
 def check_split(split_path: Path, root: Path) -> Check:
     if not split_path.is_file():
         return Check("writer split", MISSING, f"not built yet: {split_path}")
@@ -162,12 +194,13 @@ def check_iam(root: Path) -> Check:
 
 
 CAPABILITIES = [
-    ("writer-disjoint split", ["CVL images"]),
-    ("writer retrieval metric", ["CVL images"]),
+    ("training and evaluation runs", ["packed dataset"]),
+    ("writer-disjoint split", ["packed dataset"]),
+    ("writer retrieval metric", ["packed dataset"]),
     ("deception study controls", ["CVL images"]),
     ("normalisation work (T6)", ["CVL images", "your handwriting"]),
-    ("FID reference set", ["CVL words"]),
-    ("CER baseline", ["CVL words"]),
+    ("FID reference set", ["packed dataset"]),
+    ("CER baseline", ["CVL images"]),
 ]
 
 
@@ -177,11 +210,22 @@ def main() -> int:
     raw = get_path(cfg, "raw")
 
     checks: list[Check] = []
-    checks += check_cvl(raw / "cvl")
+    pack = check_pack(cfg)
+    checks.append(pack)
+
+    # A pack is derived from the raw sources, so having it makes them optional.
+    # They are still needed to *rebuild* it, and for T6, which is why they are
+    # reported rather than hidden.
+    has_pack = pack.status == OK
+    for check in check_cvl(raw / "cvl"):
+        check.required = check.required and not has_pack
+        checks.append(check)
     checks.append(
         check_split(root / "configs" / "splits" / "cvl-writer-disjoint.json", raw / "cvl")
     )
-    checks.append(check_personal(get_path(cfg, "personal")))
+    personal = check_personal(get_path(cfg, "personal"))
+    personal.required = not has_pack
+    checks.append(personal)
     checks.append(check_fixture(get_path(cfg, "fixture")))
     checks.append(check_iam(raw / "iam"))
 
