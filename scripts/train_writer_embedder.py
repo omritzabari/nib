@@ -118,6 +118,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--embedding-dim", type=int, default=128)
     parser.add_argument("--workers", type=int, default=0)
+    parser.add_argument(
+        "--also-save-to",
+        nargs="*",
+        default=[],
+        metavar="DIR",
+        help="extra directories to write the result to, saved in the same breath "
+        "as the local copy. On Colab, point this at Drive: a session can recycle "
+        "between finishing and a separate save cell, and then the run is gone.",
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
         "--limit-per-writer",
@@ -196,15 +205,26 @@ def main(argv: list[str] | None = None) -> int:
     elapsed = time.perf_counter() - started
     print(f"\ntrained in {elapsed:.0f}s")
 
+    # Saved to every destination given, not just the VM's local disk. An earlier
+    # run put the save in a separate notebook cell, the Colab session recycled
+    # between the two, and an hour of training went with it. A window in which a
+    # disconnect destroys finished work is exactly what this project exists to
+    # close, and leaving one here was careless.
+    destinations = [get_path(cfg, "checkpoints") / "writer_embedder.pt"]
+    for extra in args.also_save_to:
+        destinations.append(Path(extra) / "writer_embedder.pt")
+
     ensure_dirs(cfg, "checkpoints")
-    out = get_path(cfg, "checkpoints") / "writer_embedder.pt"
-    ckpt.save(
-        out,
-        models={"embedder": model.embedder},
-        state=ckpt.TrainingState(step=args.epochs, extra={"top1": result.top1}),
-        config=cfg,
-    )
-    print(f"saved         {out}")
+    out = destinations[0]
+    for destination in destinations:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        ckpt.save(
+            destination,
+            models={"embedder": model.embedder},
+            state=ckpt.TrainingState(step=args.epochs, extra={"top1": result.top1}),
+            config=cfg,
+        )
+        print(f"saved         {destination}")
 
     print()
     print(result.summary())
