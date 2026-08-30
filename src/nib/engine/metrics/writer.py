@@ -28,6 +28,16 @@ from typing import Protocol
 
 import numpy as np
 
+RETRIEVAL_FLOOR = 0.30
+"""Top-1 this metric must reach on REAL handwriting before it is worth trusting.
+
+Not a threshold over chance. Wired to ImageNet Inception it scored 3.7% against
+0.9% chance -- four times chance, and useless. The metric exists to notice a
+generator that ignores its style input, and it can only do that if it identifies
+real writers reliably first. So the bar is what the job needs, not what beats a
+coin toss.
+"""
+
 
 class Embedder(Protocol):
     """Anything that turns handwriting images into vectors."""

@@ -33,14 +33,7 @@ from nib.config import get_path, load_config
 from nib.data.pack import PackReader
 from nib.engine.metrics import cer as cer_mod
 from nib.engine.metrics.fid import InceptionFeatures, compute_fid
-from nib.engine.metrics.writer import WriterRetrieval
-
-RETRIEVAL_FLOOR = 0.30
-"""Top-1 the retrieval metric must reach on real handwriting to be usable.
-
-Not a threshold over chance. The metric exists to notice a generator that ignores
-its style input, and it can only do that if it identifies real writers reliably
-first."""
+from nib.engine.metrics.writer import RETRIEVAL_FLOOR, WriterRetrieval
 
 
 def _cvl_lines(root: Path, limit: int = 40) -> list[tuple[np.ndarray, str]]:

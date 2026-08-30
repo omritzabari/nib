@@ -23,6 +23,7 @@ optimised. PNG decode of a 64-pixel-tall crop is not the bottleneck.
 from __future__ import annotations
 
 import json
+import os
 import pickle
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -268,11 +269,19 @@ def compact(path: Path | str, destination: Path | str | None = None) -> Path:
     always a compacted copy.
     """
     path = Path(path)
-    target = Path(destination) if destination else path.with_suffix(path.suffix + ".compact")
+
+    # A unique temporary name, not a fixed ".compact" suffix. An earlier run of
+    # this died overnight and left its half-written file locked by a process that
+    # never exited; every retry then failed on PermissionError trying to delete
+    # it. A leftover from a dead run must not be able to block a live one.
+    if destination is not None:
+        target = Path(destination)
+        target.unlink(missing_ok=True)
+    else:
+        target = path.with_suffix(f"{path.suffix}.compact.{os.getpid()}")
 
     env = lmdb.open(str(path), subdir=False, readonly=True, lock=False)
     try:
-        target.unlink(missing_ok=True)
         env.copy(str(target), compact=True)
     finally:
         env.close()
