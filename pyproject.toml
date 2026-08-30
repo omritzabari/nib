@@ -41,6 +41,9 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
+# Notebooks contain shell magics, which are not Python. The rule that they hold
+# no logic is enforced by review, not by a linter.
+extend-exclude = ["notebooks"]
 target-version = "py311"
 src = ["src", "tests"]
 

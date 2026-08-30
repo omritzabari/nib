@@ -54,6 +54,33 @@ class DummyModel(nn.Module):
         return self.head(x.flatten(1))
 
 
+def epoch_loader(dataset, epoch: int, seed: int, args) -> DataLoader:
+    """A loader whose shuffle depends only on (seed, epoch).
+
+    This is what makes a resume exact, and its absence is what the first run of
+    --verify-resume caught. The checkpoint restores every weight, every optimiser
+    moment and every RNG -- and the run still diverged, because a DataLoader built
+    with shuffle=True draws a fresh permutation each time it is constructed. The
+    resumed run therefore saw *different data* from step N onward. Nothing was
+    lost from the checkpoint; the order simply was not part of it.
+
+    Deriving the permutation from the epoch number instead means a resumed run
+    replays the same order, and skipping the batches already consumed puts it back
+    exactly where it stopped.
+    """
+    generator = torch.Generator()
+    generator.manual_seed(seed * 1_000_003 + epoch)
+    return DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        generator=generator,
+        collate_fn=collate,
+        num_workers=args.workers,
+        drop_last=True,
+    )
+
+
 def build(cfg, args):
     pack_path = (
         Path(args.pack)
@@ -200,16 +227,14 @@ def _verify_resume(cfg, args, dataset) -> int:
                 resume_from, models={"model": model}, optimizers={"opt": optimizer}
             ).step
 
-        loader = DataLoader(
-            dataset,
-            batch_size=args.batch_size,
-            shuffle=True,
-            collate_fn=collate,
-            num_workers=0,
-            drop_last=True,
-        )
+        batches_per_epoch = max(1, len(dataset) // args.batch_size)
         while step < total:
-            for batch in loader:
+            epoch = step // batches_per_epoch
+            loader = epoch_loader(dataset, epoch, int(cfg.seed), args)
+            skip = step % batches_per_epoch
+            for index, batch in enumerate(loader):
+                if index < skip:
+                    continue
                 if step >= total:
                     break
                 images = batch.images.to(args.device)
