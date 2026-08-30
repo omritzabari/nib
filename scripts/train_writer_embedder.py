@@ -215,7 +215,6 @@ def main(argv: list[str] | None = None) -> int:
         destinations.append(Path(extra) / "writer_embedder.pt")
 
     ensure_dirs(cfg, "checkpoints")
-    out = destinations[0]
     for destination in destinations:
         destination.parent.mkdir(parents=True, exist_ok=True)
         ckpt.save(
