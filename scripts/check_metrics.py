@@ -36,6 +36,36 @@ from nib.engine.metrics.fid import InceptionFeatures, compute_fid
 from nib.engine.metrics.writer import RETRIEVAL_FLOOR, WriterRetrieval
 
 
+def _writer_embedder(cfg, device: str, fallback):
+    """The trained style embedding if it exists, otherwise Inception.
+
+    Measured on 94 writers the network never trained on:
+
+        ImageNet Inception     3.7% top-1
+        untrained, same shape  8.0%
+        trained                66.9%   (90.1% top-5)
+
+    The middle number is the interesting one: random weights on the right
+    architecture already beat trained weights on the wrong one, which is what
+    says the problem was photographic features applied to handwriting rather than
+    a task that is inherently hard.
+
+    Falling back rather than failing, because FID and CER are still worth running
+    on a machine where the embedding has not been trained yet -- but the source is
+    printed, so a 3.7% result is never mistaken for a 67% one.
+    """
+    from nib.engine import checkpoint as ckpt
+    from nib.models.writer_embedder import TorchEmbedderAdapter, WriterEmbedder
+
+    path = get_path(cfg, "checkpoints") / "writer_embedder.pt"
+    if not path.is_file():
+        return (lambda ims: fallback(list(ims))), "ImageNet Inception (untrained for this task)"
+
+    embedder = WriterEmbedder()
+    ckpt.load(path, models={"embedder": embedder})
+    return TorchEmbedderAdapter(embedder, device=device), f"trained embedding from {path.name}"
+
+
 def _cvl_lines(root: Path, limit: int = 40) -> list[tuple[np.ndarray, str]]:
     """CVL line images, with ground truth reassembled from their word filenames.
 
@@ -136,7 +166,9 @@ def main(argv: list[str] | None = None) -> int:
     if len(gallery) < 20 or len(queries) < 20:
         print("  too few overlapping writers in the sample; raise --samples")
     else:
-        retrieval = WriterRetrieval(lambda ims: inception(list(ims)))
+        embedder, source = _writer_embedder(cfg, args.device, inception)
+        print(f"  embedder: {source}")
+        retrieval = WriterRetrieval(embedder)
         retrieval.fit([r.image for r in gallery], [r.writer_id for r in gallery])
         result = retrieval.evaluate([r.image for r in queries], [r.writer_id for r in queries])
         print("\n" + result.summary())

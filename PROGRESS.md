@@ -6,16 +6,16 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **Phase 1 is complete.** All 13 tasks done; T12 passed on a real T4 on 2026-08-30:
-> bit-identical resume (0.000e+00), 469 MB copied from Drive in 6.1s, and 614
-> samples/second through the data pipeline -- three to twelve times faster than a
-> real model will consume them, so the GPU will be the bottleneck, not the data.
+> **Phase 1 is finished, all three metrics included.** The writer embedding was
+> trained on Colab on 2026-08-31 and reaches **66.9% top-1 / 90.1% top-5** on the
+> 94 held-out writers, against a 30% floor and 1.1% chance.
 >
-> **One thing is still open and it is mine:** the writer-retrieval metric. Wired to
-> ImageNet Inception it scores 3.7% top-1 on real handwriting, against a 30% floor.
-> A purpose-trained embedding is in progress. FID and CER are verified and usable.
+> **Phase 2: connect the Emuru checkpoint.** The first time this project produces
+> handwriting. Everything it needs is proven: data, split, checkpointing,
+> tracking, three working metrics, and a Colab loop that resumes exactly.
 >
-> **Phase 2 begins when Amri says so:** connecting the released Emuru checkpoint.
+> One loose end worth doing early: pin torch. Local is 2.13, Colab is 2.11. It has
+> broken nothing, but a checkpoint written locally may not load there.
 
 ## Status
 
@@ -31,7 +31,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T7 | Pack to a single LMDB file | **done** | ruff clean · batched writes · compaction 8.00 GB -> 24.9 MB |
 | T8 | Dataset + collate | **done** | ruff clean · 19 tests · same-writer / different-word verified via style_keys |
 | T9 | Checkpoint save/resume | **done** | ruff clean · 132 tests · resume is bit-identical to an uninterrupted run |
-| T10 | Metrics: FID, CER, writer retrieval | **2 of 3 verified** | FID 0.0000 self-check, floor 33.72 · CER 12.33% on real lines · **writer retrieval broken at 3.7% top-1** |
+| T10 | Metrics: FID, CER, writer retrieval | **done** | FID 0.0000 self-check, floor 33.72 · CER 12.33% on real lines · retrieval **66.9% top-1** on 94 unseen writers |
 | T11 | Experiment tracking + visual sample log | **done** | ruff clean · 157 tests · entity omri334jb configured |
 | T12 | Colab end-to-end smoke run | **done** | T4, 2026-08-30: bit-identical resume, 6.1s Drive copy, 614 samples/s |
 
