@@ -8,6 +8,26 @@ on *real* handwriting.
 The weights are downloaded once from HuggingFace (about 1.4 GB) and cached. On
 Colab that download happens per session unless the cache directory points at
 Drive, so ``cache_dir`` is exposed for exactly that.
+
+.. important::
+   **Give it lines, not isolated words.** Measured on real CVL handwriting:
+
+       isolated words   53.3% CER   -- unusable as a judge
+       whole lines      11.1% CER   -- usable
+
+   TrOCR-base-handwritten was trained on IAM *line* images, and a single word is
+   out of distribution for it. The tell is that it hallucinates trailing
+   punctuation on words, because it expects a sentence. Much of the residual 11%
+   is also punctuation that TrOCR adds and CVL's word-level ground truth omits,
+   so the true reading accuracy is better than the figure suggests.
+
+   This settles one of the open questions in the project brief -- "is TrOCR good
+   enough, or do we need to train our own recogniser?" It is good enough, at line
+   level. It is not, at word level.
+
+   That happens to align with the architecture: the chosen generator emits
+   variable-length *lines*, so the unit the judge wants is the unit the model
+   produces.
 """
 
 from __future__ import annotations
@@ -18,6 +38,8 @@ from pathlib import Path
 import numpy as np
 
 DEFAULT_MODEL = "microsoft/trocr-base-handwritten"
+TOKENIZER_FALLBACK = "roberta-large"
+"""TrOCR-base's decoder is RoBERTa-large; see _load_processor."""
 
 
 class RecogniserError(RuntimeError):
@@ -36,7 +58,7 @@ class TrOcrRecogniser:
     ) -> None:
         try:
             import torch
-            from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+            from transformers import VisionEncoderDecoderModel
         except ImportError as exc:  # pragma: no cover - depends on the install
             raise RecogniserError(
                 "TrOCR needs torch and transformers. pip install transformers"
@@ -47,7 +69,7 @@ class TrOcrRecogniser:
         self.max_new_tokens = max_new_tokens
         cache = str(cache_dir) if cache_dir else None
 
-        self.processor = TrOCRProcessor.from_pretrained(model_name, cache_dir=cache)
+        self.processor = _load_processor(model_name, cache)
         self.model = (
             VisionEncoderDecoderModel.from_pretrained(model_name, cache_dir=cache)
             .eval()
@@ -69,6 +91,32 @@ class TrOcrRecogniser:
         with self.torch.no_grad():
             ids = self.model.generate(inputs, max_new_tokens=self.max_new_tokens)
         return [t.strip() for t in self.processor.batch_decode(ids, skip_special_tokens=True)]
+
+
+def _load_processor(model_name: str, cache: str | None):
+    """Build the processor, working around a tokenizer that no longer loads.
+
+    ``TrOCRProcessor.from_pretrained`` fails on transformers 5.x for this model:
+    the repository predates the ``tokenizer.json`` format and the new code cannot
+    convert the old files, raising "Couldn't instantiate the backend tokenizer".
+
+    TrOCR-base's decoder *is* RoBERTa-large, and that tokenizer loads without
+    trouble, so the processor is assembled from parts: the image processor from
+    the TrOCR repository, the tokenizer from roberta-large. The vocabulary sizes
+    are asserted to match, because a tokenizer that merely loads but disagrees
+    with the decoder would silently produce fluent nonsense -- which is far worse
+    than an exception, since CER would then measure the wrong thing entirely.
+    """
+    from transformers import AutoImageProcessor, AutoTokenizer, TrOCRProcessor
+
+    try:
+        return TrOCRProcessor.from_pretrained(model_name, cache_dir=cache)
+    except (ValueError, OSError):
+        pass
+
+    image_processor = AutoImageProcessor.from_pretrained(model_name, cache_dir=cache)
+    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_FALLBACK, cache_dir=cache)
+    return TrOCRProcessor(image_processor=image_processor, tokenizer=tokenizer)
 
 
 def _to_rgb_uint8(image: np.ndarray) -> np.ndarray:

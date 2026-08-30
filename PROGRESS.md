@@ -6,6 +6,13 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
+> **Two things: T12 (Amri, Colab) and fixing writer retrieval (me).**
+>
+> Writer retrieval scores 3.7% top-1 on REAL handwriting, measured. ImageNet
+> Inception features describe photo texture, not handwriting. It needs a small
+> embedding trained on the 216 training-split writers -- the 'phase 1 is not
+> really zero model' point, now with a number behind it.
+>
 > **T12 — Amri runs the Colab smoke test.** Everything else in phase 1 is done.
 >
 > `notebooks/colab_smoke.ipynb` is ready. He needs to upload
@@ -27,7 +34,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T7 | Pack to a single LMDB file | **done** | ruff clean · batched writes · compaction 8.00 GB -> 24.9 MB |
 | T8 | Dataset + collate | **done** | ruff clean · 19 tests · same-writer / different-word verified via style_keys |
 | T9 | Checkpoint save/resume | **done** | ruff clean · 132 tests · resume is bit-identical to an uninterrupted run |
-| T10 | Metrics: FID, CER, writer retrieval | **done** | ruff clean · 35 tests · sanity script written |
+| T10 | Metrics: FID, CER, writer retrieval | **2 of 3 verified** | FID 0.0000 self-check, floor 33.72 · CER 12.33% on real lines · **writer retrieval broken at 3.7% top-1** |
 | T11 | Experiment tracking + visual sample log | **done** | ruff clean · 157 tests · entity omri334jb configured |
 | T12 | Colab end-to-end smoke run | **ready for Amri** | notebook + smoke_train.py written; **phase 1 exit criterion** |
 

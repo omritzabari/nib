@@ -27,11 +27,61 @@ import random
 import sys
 from pathlib import Path
 
+import numpy as np
+
 from nib.config import get_path, load_config
 from nib.data.pack import PackReader
 from nib.engine.metrics import cer as cer_mod
 from nib.engine.metrics.fid import InceptionFeatures, compute_fid
 from nib.engine.metrics.writer import WriterRetrieval
+
+RETRIEVAL_FLOOR = 0.30
+"""Top-1 the retrieval metric must reach on real handwriting to be usable.
+
+Not a threshold over chance. The metric exists to notice a generator that ignores
+its style input, and it can only do that if it identifies real writers reliably
+first."""
+
+
+def _cvl_lines(root: Path, limit: int = 40) -> list[tuple[np.ndarray, str]]:
+    """CVL line images, with ground truth reassembled from their word filenames.
+
+    CVL ships line crops but no line-level transcription. A line's words are named
+    ``writer-text-line-word-TEXT.tif``, so the line's text is its words in
+    word-index order. Indices are not contiguous -- failed segmentations were
+    dropped -- so sorting by index matters and counting does not.
+    """
+    import re
+
+    import cv2
+
+    from nib.data.preprocessing import normalise_word
+
+    pattern = re.compile(r"^(\d{4})-(\d+)-(\d+)-(\d+)-(.+)$")
+    out: list[tuple[np.ndarray, str]] = []
+
+    for line_path in sorted(root.rglob("*.tif")):
+        if "lines" not in line_path.parts:
+            continue
+        parts = line_path.stem.split("-")
+        if len(parts) != 3:
+            continue
+        writer, text_id, line_index = parts
+        words = []
+        word_dir = line_path.parents[2] / "words" / writer
+        for word_path in sorted(word_dir.glob(f"{writer}-{text_id}-{line_index}-*.tif")):
+            match = pattern.match(word_path.stem)
+            if match:
+                words.append((int(match.group(4)), match.group(5)))
+        if not words:
+            continue
+        image = cv2.imread(str(line_path), cv2.IMREAD_UNCHANGED)
+        if image is None:
+            continue
+        out.append((normalise_word(image, 64), " ".join(w for _, w in sorted(words))))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pack", default=None)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--skip-cer", action="store_true", help="skip the 1.4 GB download")
+    parser.add_argument("--cer-lines", type=int, default=40)
     args, overrides = parser.parse_known_args(argv)
 
     repo = Path(__file__).resolve().parents[1]
@@ -96,11 +147,13 @@ def main(argv: list[str] | None = None) -> int:
         retrieval.fit([r.image for r in gallery], [r.writer_id for r in gallery])
         result = retrieval.evaluate([r.image for r in queries], [r.writer_id for r in queries])
         print("\n" + result.summary())
-        if result.top1 <= result.chance * 2:
+        if result.top1 < RETRIEVAL_FLOOR:
             failures.append(
-                f"retrieval scored {result.top1:.1%} against chance {result.chance:.1%} -- "
-                "the embedding carries no writer identity, so this metric cannot "
-                "detect a model that ignores its style input"
+                f"retrieval scored {result.top1:.1%} top-1 on REAL handwriting "
+                f"(chance {result.chance:.1%}). Beating chance is not the bar: a metric "
+                f"that cannot tell real writers apart cannot detect a generator that "
+                f"ignores its style input. ImageNet Inception features describe photo "
+                f"texture, not handwriting -- this needs an embedding trained for the job."
             )
 
     # ---- CER ---------------------------------------------------------------
@@ -110,20 +163,29 @@ def main(argv: list[str] | None = None) -> int:
         from nib.engine.metrics.recogniser import TrOcrRecogniser
 
         recogniser = TrOcrRecogniser(device=args.device)
-        subset = first[: min(64, len(first))]
-        result = cer_mod.evaluate(
-            recogniser,
-            generated_images=[r.image for r in subset],
-            targets=[r.text for r in subset],
-        )
-        print(f"\nCER on REAL handwriting  {result.generated:.2%}   over {result.num_samples}")
-        print("  this is the recogniser's own error rate -- the baseline every")
-        print("  generated-image CER must be reported against")
-        if result.generated > 0.5:
-            failures.append(
-                f"the recogniser scores {result.generated:.1%} on real handwriting, "
-                "which is too poor for it to judge anything"
+
+        # Lines, not words. Measured on real CVL handwriting: 53.3% CER on
+        # isolated words against 11.1% on lines. TrOCR was trained on IAM lines,
+        # and a lone word is out of distribution for it -- the tell is that it
+        # hallucinates trailing punctuation, because it expects a sentence.
+        pairs = _cvl_lines(get_path(cfg, "raw") / "cvl", limit=args.cer_lines)
+        if not pairs:
+            print("  no CVL line images found; skipping")
+        else:
+            result = cer_mod.evaluate(
+                recogniser,
+                generated_images=[image for image, _ in pairs],
+                targets=[text for _, text in pairs],
             )
+            print(f"\nCER on REAL lines   {result.generated:.2%}   over {result.num_samples}")
+            print("  the recogniser's own error rate, and the baseline every generated")
+            print("  CER must be reported against. Part of it is punctuation TrOCR adds")
+            print("  that CVL's word-level ground truth does not contain.")
+            if result.generated > 0.25:
+                failures.append(
+                    f"the recogniser scores {result.generated:.1%} on real lines, "
+                    "which is too poor for it to judge anything"
+                )
 
     print("\n" + "=" * 60)
     if failures:
