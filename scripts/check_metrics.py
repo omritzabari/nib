@@ -66,44 +66,49 @@ def _writer_embedder(cfg, device: str, fallback):
     return TorchEmbedderAdapter(embedder, device=device), f"trained embedding from {path.name}"
 
 
-def _cvl_lines(root: Path, limit: int = 40) -> list[tuple[np.ndarray, str]]:
-    """CVL line images, with ground truth reassembled from their word filenames.
+def _real_lines(cfg, limit: int) -> list[tuple[np.ndarray, str]]:
+    """Real CVL lines and their transcriptions, for the recogniser's own error rate.
 
-    CVL ships line crops but no line-level transcription. A line's words are named
-    ``writer-text-line-word-TEXT.tif``, so the line's text is its words in
-    word-index order. Indices are not contiguous -- failed segmentations were
-    dropped -- so sorting by index matters and counting does not.
+    The reassembly itself lives in :mod:`nib.data.cvl_lines`; this only loads and
+    normalises. The version replaced here did the reassembly inline and had two
+    faults that both flattered nothing and hurt the recogniser:
+
+    * it filtered nothing, so roughly one line in twelve carried a transcription
+      missing a word whose ink was still in the image -- and TrOCR was charged
+      with a deletion error for reading that word correctly;
+    * it took the first N lines in filename order, which groups by writer, so the
+      whole measurement came from one or two hands.
+
+    Both are fixed below: the reader drops incomplete lines, and the sample is
+    drawn at random across writers with the configured seed.
     """
-    import re
-
     import cv2
 
-    from nib.data.preprocessing import normalise_word
+    from nib.data.cvl_lines import scan_lines
+    from nib.data.preprocessing import normalise_line
 
-    pattern = re.compile(r"^(\d{4})-(\d+)-(\d+)-(\d+)-(.+)$")
+    root = get_path(cfg, "raw") / "cvl"
+    if not root.is_dir():
+        return []
+
+    lines, report = scan_lines(root, charset_name=str(cfg.data.charset))
+    print(report.summary())
+    if not lines:
+        return []
+
+    height = int(cfg.data.image_height)
+    chosen = random.Random(int(cfg.seed)).sample(lines, min(limit, len(lines)))
+
     out: list[tuple[np.ndarray, str]] = []
-
-    for line_path in sorted(root.rglob("*.tif")):
-        if "lines" not in line_path.parts:
-            continue
-        parts = line_path.stem.split("-")
-        if len(parts) != 3:
-            continue
-        writer, text_id, line_index = parts
-        words = []
-        word_dir = line_path.parents[2] / "words" / writer
-        for word_path in sorted(word_dir.glob(f"{writer}-{text_id}-{line_index}-*.tif")):
-            match = pattern.match(word_path.stem)
-            if match:
-                words.append((int(match.group(4)), match.group(5)))
-        if not words:
-            continue
-        image = cv2.imread(str(line_path), cv2.IMREAD_UNCHANGED)
+    unreadable = 0
+    for line in chosen:
+        image = cv2.imread(str(line.image_path), cv2.IMREAD_UNCHANGED)
         if image is None:
+            unreadable += 1
             continue
-        out.append((normalise_word(image, 64), " ".join(w for _, w in sorted(words))))
-        if len(out) >= limit:
-            break
+        out.append((normalise_line(image, height), line.text))
+    if unreadable:
+        print(f"  {unreadable} line images could not be read and were skipped")
     return out
 
 
@@ -193,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
         # isolated words against 11.1% on lines. TrOCR was trained on IAM lines,
         # and a lone word is out of distribution for it -- the tell is that it
         # hallucinates trailing punctuation, because it expects a sentence.
-        pairs = _cvl_lines(get_path(cfg, "raw") / "cvl", limit=args.cer_lines)
+        pairs = _real_lines(cfg, limit=args.cer_lines)
         if not pairs:
             print("  no CVL line images found; skipping")
         else:
@@ -206,6 +211,9 @@ def main(argv: list[str] | None = None) -> int:
             print("  the recogniser's own error rate, and the baseline every generated")
             print("  CER must be reported against. Part of it is punctuation TrOCR adds")
             print("  that CVL's word-level ground truth does not contain.")
+            print("  Supersedes the 12.33% measured in phase 1, which was taken over")
+            print("  40 lines of one writer with no filtering, and so charged the")
+            print("  recogniser for words the ground truth had lost.")
             if result.generated > 0.25:
                 failures.append(
                     f"the recogniser scores {result.generated:.1%} on real lines, "

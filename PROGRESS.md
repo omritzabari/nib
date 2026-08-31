@@ -15,31 +15,55 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > ### The immediate next task
 >
-> **Build a line-level pack, then run `scripts/evaluate_generator.py` on Colab.**
-> That produces the project's first real numbers against the phase-1 references.
+> **T14 — pack the clean lines into `data/processed/cvl_lines_64.lmdb`.**
+> Then compact it and put a copy under `data/processed/upload/` for Drive.
+> `scripts/build_index.py` is the template; the difference is that it reads
+> `nib.data.cvl_lines.scan_lines` and normalises with `normalise_line`.
 >
-> Two reasons it must be lines rather than the existing word pack:
-> - `normalise_word` stretches every crop to a fixed 64px, so a one-letter word
->   becomes as tall as a line. Relative scale is destroyed, and word-level
->   generation produced tiny faint marks and runaway outputs.
-> - Emuru generates lines natively. CVL ships 13,785 line images; their text is
->   reassembled from the word filenames (see `_cvl_lines` in
->   `scripts/check_metrics.py`).
+> Phase 2 runs T13 -> T16. T13 is done; T14 is local, T15 and T16 are Colab.
 >
-> Apply `normalise_ink` when loading lines. Raw CVL lines are low-contrast, the
-> model faithfully reproduces what it is given, and that is the whole cause of the
-> faint output.
+> ### Why the plan grew from two steps to four (2026-08-31)
 >
-> **Run evaluation on Colab, not locally.** 220s per line on CPU; minutes on a T4.
+> Measuring the line data before writing the pack turned up three things. All
+> three were invisible while the working unit was a word, and all three become
+> load-bearing the moment it is a line.
+>
+> **1,157 lines carry a transcription that is missing a word.** CVL dropped word
+> crops whose segmentation failed, but the line image still holds that word's
+> ink. Pairing the two charges the recogniser a deletion error for reading
+> correctly. Confirmed by counting ink blobs: gap lines carry 0.58 more per line
+> than complete ones, relative to their own word count. They are dropped and
+> counted -- 10,862 clean lines remain, every held-out writer keeps at least 16.
+>
+> **The token budget was set for words and never revisited.** Emuru's VAE
+> compresses width by 8, so one token is 8px (`lengths / 8` in its
+> `modeling_emuru.py`). `EmuruGenerator` passes `max_new_tokens=96` = 768px. A
+> real CVL line at 64px averages **886px**, p90 1198px. *It could not finish an
+> average line.* The two 756px outputs recorded as "runaway generation" were
+> 94-95 tokens: they hit our cap. The model's own default is 256. T16 replaces
+> the fixed cap with a per-request budget from the text length, and counts every
+> truncation.
+>
+> **The three reference numbers were measured on words.** FID 33.72 and
+> retrieval 66.9% both came from `cvl_words_64.lmdb`; CER 12.33% came from 40
+> unfiltered lines of a single writer. Scoring generated *lines* against a
+> word-level FID floor compares different things. T15 re-measures all three on
+> the line pack -- one run of `check_metrics.py --pack ...`, no new code.
+>
+> A fourth item from `PROGRESS.md` turned out to need no work: it asked for
+> `normalise_ink` on the line path, but `normalise_word` already called it
+> internally. Raw lines sit at 2nd-percentile brightness ~130; after
+> normalisation ~21. The faint probe output came from loading raw images.
 >
 > ### Known and open
 >
 > - Emuru needs the style sample's *transcription*. A user photographing a page
 >   has transcribed nothing, so the product must read it first -- TrOCR is already
 >   here for that, at TrOCR's accuracy. This constrains the architecture.
-> - Two of five word-level requests ran to the token limit instead of stopping.
->   The known Emuru failure; its successor Eruku exists to fix it. Watch at line
->   level.
+> - Emuru also ships `generate_batch`, which `EmuruGenerator` does not use. It
+>   takes per-sample `lengths` and would cut Colab generation time. Not needed
+>   for correctness; worth doing if T16 is slow.
+> - **Run evaluation on Colab, not locally.** 220s per line on CPU; minutes on a T4.
 > - `data/processed/cvl_words_64.lmdb` shows 8 GB but holds 469 MB; it is sparse
 >   and locked by a stale handle. The compacted copy for uploading is at
 >   `data/processed/upload/cvl_words_64.lmdb`. A reboot clears the lock.
@@ -63,6 +87,15 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T10 | Metrics: FID, CER, writer retrieval | **done** | FID 0.0000 self-check, floor 33.72 · CER 12.33% on real lines · retrieval **66.9% top-1** on 94 unseen writers |
 | T11 | Experiment tracking + visual sample log | **done** | ruff clean · 157 tests · entity omri334jb configured |
 | T12 | Colab end-to-end smoke run | **done** | T4, 2026-08-30: bit-identical resume, 6.1s Drive copy, 614 samples/s |
+
+**Phase 2 — generation and its first real numbers.**
+
+| ID | Task | Status | Verified by |
+|----|------|--------|-------------|
+| T13 | CVL line reader, with counted drops | **done** | ruff clean · 306 passed, 5 skipped · 10,862 of 13,473 lines kept, total_seen matches the disk exactly |
+| T14 | Line pack -> `cvl_lines_64.lmdb` | next | |
+| T15 | Re-measure FID / retrieval / CER on lines | todo | |
+| T16 | Per-request token budget, then evaluate the generator | todo | |
 
 ## Waiting on Amri
 
@@ -94,6 +127,20 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-08-31 — T13 done.** `nib.data.cvl_lines` reads CVL's 13,473 line crops and
+  reassembles each transcription from the word filenames. 10,862 kept; the rest are
+  counted by reason — 1,421 German, 1,132 with word-index gaps, 33 with no word files,
+  25 from the writer CVL's own readme excludes. `total_seen` equals the file count on
+  disk exactly. Word filenames are indexed in one unfiltered pass, keyed by
+  (writer, text, line): filtering the index first would hide the very gaps it exists to
+  find. Drop reasons are attributed in a fixed order — charset before incompleteness —
+  so "incomplete" reports only English lines lost to data quality, and there is a test
+  that pins that order. Added `normalise_line` beside `normalise_word`: the same
+  mechanism, deliberately two names, because fixing the height destroys a word's
+  relative scale and is exactly what makes lines comparable. Deleted `_cvl_lines` from
+  `scripts/check_metrics.py`, which had reassembled transcriptions inline, filtered
+  nothing, and drawn all 40 samples from one writer.
 
 - **2026-08-28 — T0 done.** Package `nib-synth` installs editable as `nib`. Deviated from the
   brief's proposed layout: `src/nib/...` instead of `src/...`, so imports work from any working

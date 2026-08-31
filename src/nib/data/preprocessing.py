@@ -355,15 +355,51 @@ def _to_gray(image: np.ndarray) -> np.ndarray:
 def normalise_word(image: np.ndarray, height: int, config: NormaliseConfig = DEFAULT) -> np.ndarray:
     """Normalise an already-cropped word image to a fixed height.
 
-    Deliberately *not* :func:`normalise_page`. A word crop from a dataset is a few
-    dozen pixels tall, already cut from a flat scan: there is no page to find, no
-    perspective to undo, and no ruling long enough to detect. Running the page
-    pipeline on one would at best waste time and at worst have the background
-    estimator swallow the whole word, since the strokes are then a large fraction
-    of the image.
-
     Height is fixed and width follows the aspect ratio, which is what keeps the
     variable-width collate path meaningful.
+
+    .. warning::
+       Fixing the height of a *word* destroys relative scale: a one-letter word
+       comes out as tall as a whole line, and how big a letter is happens to be
+       part of how a hand looks. That cost is acceptable for training a style
+       embedding, where every sample is treated alike, and it is **not**
+       acceptable for a generator that was trained on lines. Use
+       :func:`normalise_line` there.
+    """
+    return _normalise_crop(image, height, config)
+
+
+def normalise_line(image: np.ndarray, height: int, config: NormaliseConfig = DEFAULT) -> np.ndarray:
+    """Normalise an already-cropped line image to a fixed height.
+
+    The same operation as :func:`normalise_word`, kept separate because the two
+    carry opposite verdicts and collapsing them into one name would lose the
+    distinction that cost this project a failed generation run.
+
+    A line is the unit where fixing the height is not merely harmless but
+    *correct*. Lines of handwriting are all roughly the same height to begin
+    with, so scaling them to a common one lines up the letters rather than
+    stretching them: a line of capitals and a line of lowercase keep their
+    difference. That is also the form the generator was trained on.
+
+    ``normalise_ink`` runs inside, which matters more here than for words. Raw
+    CVL line scans sit at a 2nd-percentile brightness of about 130 out of 255 --
+    grey ink on grey paper. The generator reproduces faithfully whatever it is
+    shown, so an unnormalised reference produces a faint, washed-out line and the
+    model gets the blame. After normalisation that percentile is about 20.
+    """
+    return _normalise_crop(image, height, config)
+
+
+def _normalise_crop(image: np.ndarray, height: int, config: NormaliseConfig) -> np.ndarray:
+    """Grayscale, stretch the ink, scale to a fixed height keeping the aspect ratio.
+
+    Deliberately *not* :func:`normalise_page`. A crop from a dataset is a few
+    dozen pixels tall and already cut from a flat scan: there is no page to find,
+    no perspective to undo, and no ruling long enough to detect. Running the page
+    pipeline on one would at best waste time and at worst have the background
+    estimator swallow the writing, since the strokes are then a large fraction of
+    the image.
     """
     gray = _to_gray(image)
     if gray.size == 0:
