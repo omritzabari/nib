@@ -33,6 +33,23 @@ class GeneratorError(RuntimeError):
     pass
 
 
+class EmptyGeneration(GeneratorError):
+    """The model produced no image at all for one request.
+
+    Lives here rather than beside a particular model because it is an outcome any
+    generator can have, and because the caller has to be able to tell it apart
+    from a programming error: an evaluation over three hundred samples should
+    survive one request the model declined to write, and must not survive a
+    misconfigured one.
+
+    Raised rather than answered with a blank image. A blank would pass through
+    FID as a legitimate sample and pull the score toward whatever an empty canvas
+    scores -- a lie the metric has no way to detect. The honest handling is to
+    exclude the request *and its ground truth together*, so the pairing of
+    generated to real never shifts, and to report the count.
+    """
+
+
 @dataclass(frozen=True)
 class GenerationRequest:
     """One thing to write, and the hand to write it in."""

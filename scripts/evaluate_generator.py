@@ -8,7 +8,7 @@ ruler; this is the first thing measured with it.
 
 **Run check_metrics.py on the same pack first.** It measures what *real*
 handwriting scores on that pack and writes the figures to
-``outputs/references_<pack>.json``, which this script reads. Without that file
+``references/references_<pack>.json``, which this script reads. Without that file
 the only baseline available is the phase-1 one, measured on word crops -- and a
 generated line held against a word-level FID floor is being compared to a
 different distribution. The fallback still runs, and says so in every line of
@@ -52,7 +52,12 @@ from nib.data.split import WriterSplit
 from nib.engine.metrics import cer as cer_mod
 from nib.engine.metrics.fid import InceptionFeatures, compute_fid
 from nib.engine.metrics.writer import WriterRetrieval
-from nib.models.generator import GenerationRequest, check_output, to_uint8
+from nib.models.generator import (
+    EmptyGeneration,
+    GenerationRequest,
+    check_output,
+    to_uint8,
+)
 
 PHASE1_WORD_REFERENCE = {
     "fid_floor": 33.72,
@@ -123,17 +128,38 @@ def build_requests(pack, writers, style_refs, count, seed):
     return requests, truths
 
 
-def load_generator(name: str, device: str, height: int):
+def load_generator(name: str, device: str, height: int, failure_rate: float = 0.0):
     if name == "emuru":
         from nib.models.emuru import EmuruGenerator
 
         return EmuruGenerator(device=device, output_height=height)
+    if name == "fake":
+        # Not a model. It draws the target text in a typeface, so every number is
+        # meaningless and every shape is right -- which is what a run of this is
+        # for: proving the harness works before spending an hour of GPU on it.
+        from nib.models.fake import FakeGenerator
+
+        return FakeGenerator(output_height=height, failure_rate=failure_rate)
     raise SystemExit(f"unknown generator {name!r}")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--generator", default="emuru")
+    parser.add_argument(
+        "--generator",
+        default="emuru",
+        choices=("emuru", "fake"),
+        help="fake draws the target text in a typeface: every number it gives is "
+        "meaningless and every shape is right, which proves the harness before an "
+        "hour of GPU is spent on it.",
+    )
+    parser.add_argument(
+        "--fake-failure-rate",
+        type=float,
+        default=0.0,
+        help="share of requests the fake generator declines, to exercise the "
+        "exclusion path on purpose rather than at request 72 of 300.",
+    )
     parser.add_argument(
         "--unit",
         choices=("lines", "words"),
@@ -174,21 +200,43 @@ def main(argv: list[str] | None = None) -> int:
     print(f"requests           {len(requests)}, {args.style_refs} style samples each")
 
     print(f"\nloading {args.generator} on {device} ...")
-    generator = load_generator(args.generator, device, height)
+    generator = load_generator(args.generator, device, height, args.fake_failure_rate)
     print(f"  {generator.name}, output height {generator.output_height}px")
 
     print("\ngenerating")
     started = time.perf_counter()
     generated: list[np.ndarray] = []
-    for start in range(0, len(requests), args.batch_size):
-        chunk = requests[start : start + args.batch_size]
-        images = [to_uint8(im) for im in generator.generate(chunk)]
-        check_output(images, chunk, expected_height=generator.output_height)
-        generated.extend(images)
-        done = len(generated)
-        rate = done / (time.perf_counter() - started)
-        eta = (len(requests) - done) / max(rate, 1e-9)
-        print(f"  {done:>4} / {len(requests)}   {rate:5.2f}/s   eta {eta / 60:.0f} min", flush=True)
+    kept: list = []
+    excluded: list[str] = []
+
+    # One request at a time. Emuru's own generate() loops internally anyway, so
+    # batching bought nothing but a coarser failure unit -- and a single request
+    # the model declined to write took the whole run down with it at 72 of 300.
+    for index, request in enumerate(requests, start=1):
+        try:
+            image = to_uint8(generator.generate([request])[0])
+        except EmptyGeneration as failure:
+            # Excluded in pairs. Dropping the image alone would shift every later
+            # pairing of generated to real, and CER would then be scoring the
+            # wrong text against the wrong picture.
+            excluded.append(request.text)
+            print(f"  excluded {request.text[:40]!r}: {failure}", flush=True)
+            continue
+
+        check_output([image], [request], expected_height=generator.output_height)
+        generated.append(image)
+        kept.append(truths[index - 1])
+
+        if index % args.batch_size == 0 or index == len(requests):
+            rate = index / (time.perf_counter() - started)
+            eta = (len(requests) - index) / max(rate, 1e-9)
+            print(
+                f"  {index:>4} / {len(requests)}   {rate:5.2f}/s   "
+                f"eta {eta / 60:.0f} min   kept {len(generated)}",
+                flush=True,
+            )
+
+    truths = kept
 
     elapsed = time.perf_counter() - started
     print(
@@ -198,12 +246,24 @@ def main(argv: list[str] | None = None) -> int:
     # A truncated line is a real output with its ending cut off, so it is scored
     # rather than dropped -- and a CER read over silently truncated text would be
     # measuring the budget, not the model.
+    results_run: dict = {"requested": len(requests), "excluded": len(excluded)}
+    if excluded:
+        print(
+            f"\nexcluded        {len(excluded)} of {len(requests)} requests the model "
+            "wrote nothing for,\n                together with their ground truth, so "
+            "the pairing never shifts."
+        )
+
+    for attribute in ("truncations", "empties"):
+        log = getattr(generator, attribute, None)
+        if log is not None:
+            print("\n" + log.summary())
     log = getattr(generator, "truncations", None)
     if log is not None:
-        print("\n" + log.summary())
-        results_truncation = {"truncated": len(log.events), "truncation_rate": log.rate}
-    else:
-        results_truncation = {}
+        results_run |= {"truncated": len(log.events), "truncation_rate": log.rate}
+    empties = getattr(generator, "empties", None)
+    if empties is not None:
+        results_run |= {"retried_after_empty": empties.retried}
 
     for i in range(min(args.save_images, len(generated))):
         pair = np.full(
@@ -217,7 +277,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"samples            {out_dir / 'samples'}  (real on top, generated below)")
 
     results = _measure(cfg, generated, truths, held_out, pack, device, out_dir)
-    results.update(results_truncation)
+    results.update(results_run)
     pack.close()
 
     (out_dir / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")

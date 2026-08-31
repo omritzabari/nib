@@ -244,3 +244,154 @@ def test_truncations_are_counted_and_named():
     assert log.rate == 0.5
     assert "2 of 4" in log.summary()
     assert "33 chars" in log.summary()
+
+
+# ---------------------------------------------------------------------------
+# writing nothing at all
+#
+# Emuru returns imgs[style_width : stop*8], and its stopping criterion scans the
+# style prefix too. When it fires at or before the end of the style image the
+# slice is empty -- which killed the first Colab evaluation at request 72 of 300.
+# The style latents are sampled, so a re-draw is a real second chance; these
+# tests cover the retry and the give-up, with a stand-in for the model.
+# ---------------------------------------------------------------------------
+
+
+class FakeEmuru:
+    """Returns an empty image for the first `empties` calls, then a real one."""
+
+    def __init__(self, empties: int):
+        self.empties = empties
+        self.calls = 0
+
+    def generate(self, style_text, gen_text, style_img, max_new_tokens):
+        from PIL import Image
+
+        self.calls += 1
+        if self.calls <= self.empties:
+            return Image.new("L", (0, 64), 255)
+        return Image.new("L", (240, 64), 128)
+
+
+def emuru_stub(empties: int, retries: int = 3):
+    """An EmuruGenerator with a fake model and no checkpoint download.
+
+    Built without __init__ on purpose: the retry logic is the thing under test,
+    and making it wait on a 3 GB download would mean it never got tested.
+    """
+    from nib.models.emuru import EmptyOutputLog, EmuruGenerator, TruncationLog
+
+    generator = object.__new__(EmuruGenerator)
+    generator.model = FakeEmuru(empties)
+    generator._output_height = 64
+    generator.max_new_tokens = None
+    generator.tokens_per_char = 4.0
+    generator.empty_retries = retries
+    generator.truncations = TruncationLog()
+    generator.empties = EmptyOutputLog()
+    generator._as_tensor = lambda image: None  # the tensor conversion is not the subject
+    return generator
+
+
+def styled_request(text="a line of handwriting"):
+    return GenerationRequest(text=text, style_images=style(1), style_texts=["reference"])
+
+
+def test_a_request_that_writes_nothing_is_redrawn_until_it_does():
+    generator = emuru_stub(empties=2)
+
+    images = generator.generate([styled_request()])
+
+    assert len(images) == 1
+    assert images[0].shape == (64, 240)
+    assert generator.model.calls == 3
+    assert generator.empties.retried == 1
+    assert generator.empties.extra_draws == 2
+
+
+def test_a_request_that_never_writes_anything_raises_rather_than_returning_a_blank():
+    """A blank would pass through FID as a legitimate sample and pull the score
+    toward whatever an empty canvas scores -- undetectable from inside the metric."""
+    from nib.models.generator import EmptyGeneration
+
+    generator = emuru_stub(empties=99)
+
+    with pytest.raises(EmptyGeneration, match="wrote nothing"):
+        generator.generate([styled_request("unwritable")])
+
+    assert generator.empties.failed == ["unwritable"]
+    assert generator.model.calls == 4  # the first attempt plus three re-draws
+
+
+def test_the_empty_failure_is_still_a_generator_error():
+    """Callers that only know the interface must keep catching it."""
+    from nib.models.generator import EmptyGeneration, GeneratorError
+
+    assert issubclass(EmptyGeneration, GeneratorError)
+
+
+def test_a_clean_run_says_so_rather_than_staying_silent():
+    from nib.models.emuru import EmptyOutputLog
+
+    assert "none" in EmptyOutputLog().summary()
+
+
+def test_the_empty_log_names_what_was_excluded():
+    from nib.models.emuru import EmptyOutputLog
+
+    log = EmptyOutputLog(retried=2, extra_draws=3, failed=["a line nobody wrote"])
+    summary = log.summary()
+
+    assert "2 needed a retry" in summary
+    assert "3 extra draws" in summary
+    assert "a line nobody wrote" in summary
+
+
+# ---------------------------------------------------------------------------
+# the stand-in generator
+# ---------------------------------------------------------------------------
+
+
+def test_the_fake_generator_satisfies_the_interface():
+    from nib.models.fake import FakeGenerator
+
+    assert isinstance(FakeGenerator(), Generator)
+
+
+def test_the_fake_generator_is_deterministic():
+    """A failure must be reproducible rather than chased across runs."""
+    from nib.models.fake import FakeGenerator
+
+    first = FakeGenerator(failure_rate=0.5).generate([request("repeatable")])
+    second = FakeGenerator(failure_rate=0.5).generate([request("repeatable")])
+
+    assert np.array_equal(first[0], second[0])
+
+
+def test_the_fake_generator_output_passes_validation():
+    from nib.models.fake import FakeGenerator
+
+    requests = [request("a line of text"), request("another")]
+    images = FakeGenerator(output_height=64).generate(requests)
+
+    check_output(images, requests, expected_height=64)
+
+
+def test_the_fake_generator_declines_when_asked_to():
+    """The exclusion path deserves to be exercised on purpose."""
+    from nib.models.fake import FakeGenerator
+    from nib.models.generator import EmptyGeneration
+
+    generator = FakeGenerator(failure_rate=1.0)
+
+    with pytest.raises(EmptyGeneration):
+        generator.generate([request("anything")])
+
+
+def test_the_fake_generator_writes_nothing_off_by_default():
+    from nib.models.fake import FakeGenerator
+
+    texts = [f"line number {i}" for i in range(50)]
+    images = FakeGenerator().generate([request(t) for t in texts])
+
+    assert len(images) == 50

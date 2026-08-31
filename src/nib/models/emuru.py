@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from nib.models.generator import GenerationRequest, GeneratorError
+from nib.models.generator import EmptyGeneration, GenerationRequest, GeneratorError
 
 MODEL_ID = "blowing-up-groundhogs/emuru"
 NATIVE_HEIGHT = 64
@@ -97,6 +97,56 @@ def token_budget(
     """
     wanted = math.ceil(len(text) * tokens_per_char)
     return max(minimum, min(maximum, wanted))
+
+
+EMPTY_RETRIES = 3
+"""How many extra draws a request gets before it is called a failure.
+
+Not a superstition about retrying until it works: the style image is encoded with
+``latent_dist.sample()``, so every attempt genuinely re-draws the latents that
+caused the failure. Three is enough that a persistent failure is a property of
+the request rather than of the draw."""
+
+
+EMPTY_CAUSE = """Emuru returns ``imgs[style_width : stop * 8]``, where ``stop`` is where its
+criterion decided the line had ended. It scans the whole canvas for ten
+consecutive latent slices resembling its padding token -- **the style prefix
+included** -- and the last slices of a real style line already sit close to that
+token: measured on 300 CVL lines, peak cosine similarity runs 0.86 to 0.97
+against a threshold of 0.485. So when the model opens by emitting padding, the
+ten-slice window straddles the boundary between prefix and generation, ``stop``
+lands at or before the style image's own width, and the returned slice is empty.
+
+This is why the first Colab evaluation died at request 72 of 300."""
+
+
+@dataclass
+class EmptyOutputLog:
+    """Requests the model wrote nothing for, and what it took to get past them."""
+
+    retried: int = 0
+    """Requests that needed at least one extra draw and then succeeded."""
+
+    extra_draws: int = 0
+    """Total re-draws spent, across every request."""
+
+    failed: list[str] = field(default_factory=list)
+    """Texts that produced nothing on every attempt. These are excluded from the
+    evaluation -- together with their ground-truth images, so the pairing of
+    generated to real never shifts."""
+
+    def summary(self) -> str:
+        if not self.retried and not self.failed:
+            return "empty outputs   none -- every request produced an image first time"
+        lines = [
+            f"empty outputs   {self.retried} needed a retry "
+            f"({self.extra_draws} extra draws), {len(self.failed)} never produced anything",
+            "  Emuru's stopping criterion can fire inside the style prefix, and the",
+            "  style latents are sampled, so a re-draw is a real second chance.",
+        ]
+        if self.failed:
+            lines.append(f"  excluded, with their ground truth: {self.failed[:3]}")
+        return "\n".join(lines)
 
 
 @dataclass(frozen=True)
@@ -154,6 +204,7 @@ class EmuruGenerator:
         model_id: str = MODEL_ID,
         max_new_tokens: int | None = None,
         tokens_per_char: float = TOKENS_PER_CHAR,
+        empty_retries: int = EMPTY_RETRIES,
     ) -> None:
         try:
             import torch
@@ -170,7 +221,9 @@ class EmuruGenerator:
         # runs did and is kept only so one can be reproduced.
         self.max_new_tokens = max_new_tokens
         self.tokens_per_char = tokens_per_char
+        self.empty_retries = empty_retries
         self.truncations = TruncationLog()
+        self.empties = EmptyOutputLog()
 
         if output_height != NATIVE_HEIGHT:
             print(
@@ -211,17 +264,41 @@ class EmuruGenerator:
                     "or read the sample with a recogniser first -- the model puts "
                     "style_text and gen_text through T5 together."
                 )
-            budget = self.budget_for(request.text)
+            array = self._generate_one(request)
+            out.append(array)
+        return out
+
+    def _generate_one(self, request: GenerationRequest) -> np.ndarray:
+        """One image, re-drawing while the model writes nothing.
+
+        The retry is not hopeful repetition. ``_img_encode`` samples the style
+        latents, so each attempt genuinely re-draws the thing that failed, and a
+        request that fails every time is failing for its own reasons rather than
+        for an unlucky draw.
+        """
+        budget = self.budget_for(request.text)
+
+        for attempt in range(1 + self.empty_retries):
             image = self.model.generate(
                 style_text=request.style_texts[0],
                 gen_text=request.text,
                 style_img=self._as_tensor(request.style_images[0]),
                 max_new_tokens=budget,
             )
-            array = self._from_pil(image)
-            self._record(request.text, array, budget)
-            out.append(array)
-        return out
+            array = np.asarray(image.convert("L"), dtype=np.uint8)
+            if array.size and array.shape[1]:
+                if attempt:
+                    self.empties.retried += 1
+                    self.empties.extra_draws += attempt
+                scaled = self._to_output_height(array)
+                self._record(request.text, scaled, budget)
+                return scaled
+
+        self.empties.failed.append(request.text)
+        raise EmptyGeneration(
+            f"wrote nothing for {request.text!r} on {1 + self.empty_retries} "
+            f"attempts.\n{EMPTY_CAUSE}"
+        )
 
     def _record(self, text: str, image: np.ndarray, budget: int) -> None:
         """Note whether this output stopped on its own or ran out of room.
@@ -267,11 +344,14 @@ class EmuruGenerator:
         tensor = self.torch.from_numpy(array.astype(np.float32) / 127.5 - 1.0)
         return tensor.unsqueeze(0).repeat(3, 1, 1).unsqueeze(0).to(self.device)
 
-    def _from_pil(self, image) -> np.ndarray:
-        """Back to uint8 grayscale at the requested height."""
-        array = np.asarray(image.convert("L"), dtype=np.uint8)
-        if array.size == 0 or array.shape[1] == 0:
-            raise GeneratorError("the model returned an empty image")
+    def _to_output_height(self, array: np.ndarray) -> np.ndarray:
+        """Scale a decoded image to the requested height, keeping the aspect ratio.
+
+        Emptiness is checked by the caller, which can still re-draw. Raising here
+        would turn a request that a second attempt would have satisfied into the
+        end of a three-hundred-sample run -- which is how the first Colab
+        evaluation died at 72.
+        """
         if array.shape[0] != self._output_height:
             scale = self._output_height / array.shape[0]
             array = cv2.resize(
