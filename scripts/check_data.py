@@ -209,13 +209,22 @@ def check_iam(root: Path) -> Check:
     )
 
 
+ANY_PACK = "a packed dataset"
+"""A derived status, not a check of its own: satisfied by either pack.
+
+Most of what the packs are for does not care which unit is inside them. Naming
+one of them in the list below made this report tell a Colab session that writer
+retrieval was unavailable, in the cell immediately before the run that measured
+it -- a status report that cries wolf is one nobody reads.
+"""
+
 CAPABILITIES = [
-    ("training and evaluation runs", ["word pack"]),
-    ("writer-disjoint split", ["word pack"]),
-    ("writer retrieval metric", ["word pack"]),
+    ("training and evaluation runs", [ANY_PACK]),
+    ("writer-disjoint split", ["writer split"]),
+    ("writer retrieval metric", [ANY_PACK]),
     ("deception study controls", ["CVL images"]),
     ("normalisation work (T6)", ["CVL images", "your handwriting"]),
-    ("FID reference set", ["word pack"]),
+    ("FID reference set", [ANY_PACK]),
     ("CER baseline", ["CVL images"]),
     ("generation, and its evaluation on lines", ["line pack"]),
 ]
@@ -259,6 +268,7 @@ def main() -> int:
         print(f"[{check.status}] {check.label:<{width}}  {check.detail}")
 
     status_of = {c.label: c.status for c in checks}
+    status_of[ANY_PACK] = OK if has_pack else MISSING
     print("\nwhat this data supports:")
     for capability, needed in CAPABILITIES:
         ready = all(status_of.get(n) == OK for n in needed)

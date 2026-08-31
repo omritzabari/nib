@@ -387,3 +387,25 @@ def test_missing_names_the_baselines_a_run_did_not_produce(tmp_path):
 
     assert ref.missing({"fid_floor": 1.0}) == ["cer_real", "retrieval_real"]
     assert ref.missing({"fid_floor": 1.0, "cer_real": 0.1, "retrieval_real": 0.5}) == []
+
+
+def test_a_run_that_measured_less_does_not_delete_what_was_measured_before(tmp_path):
+    """The Colab case. CER is read from the raw CVL images rather than from the
+    pack, so a machine with the pack and not the 5 GB of sources measures two of
+    the three -- and must not take the third down with it."""
+    from nib.engine.metrics import references as ref
+
+    ref.save(tmp_path, "p.lmdb", {"fid_floor": 33.0, "cer_real": 0.12, "retrieval_real": 0.6})
+    _, carried = ref.update(tmp_path, "p.lmdb", {"fid_floor": 19.0, "retrieval_real": 0.83})
+
+    after = ref.load(tmp_path, "p.lmdb")
+    assert after["fid_floor"] == 19.0, "a re-measured number must win"
+    assert after["cer_real"] == 0.12, "an unmeasured number must survive"
+    assert carried == ["cer_real"]
+
+
+def test_update_says_nothing_was_carried_when_the_file_is_new(tmp_path):
+    from nib.engine.metrics import references as ref
+
+    _, carried = ref.update(tmp_path, "fresh.lmdb", {"fid_floor": 19.0})
+    assert carried == []

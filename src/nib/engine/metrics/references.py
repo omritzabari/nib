@@ -45,11 +45,35 @@ def path_for(outputs: Path | str, pack_name: str) -> Path:
 
 
 def save(outputs: Path | str, pack_name: str, values: dict) -> Path:
-    """Write a pack's reference numbers, creating the outputs directory if needed."""
+    """Write a pack's reference numbers exactly as given, replacing the file.
+
+    Prefer :func:`update` unless you mean to discard what is already there.
+    """
     path = path_for(outputs, pack_name)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(values, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
+
+
+def update(outputs: Path | str, pack_name: str, values: dict) -> tuple[Path, list[str]]:
+    """Write what this run measured, keeping what it did not.
+
+    Returns the path and the names carried over from the previous file.
+
+    Replacing the file wholesale looked obviously right until a run measured two
+    of the three. ``check_metrics.py`` reads CER from the *raw* CVL line images
+    rather than from the pack, so a machine that has the pack but not the 5 GB of
+    source -- a Colab session, exactly the case this was built for -- skips CER
+    and would have deleted a figure someone had already measured. Losing a real
+    number to a run that did not produce one is precisely the quiet damage this
+    module exists to prevent.
+
+    Carried-over names are returned rather than absorbed, so the caller can say
+    which figures in the file came from some earlier run.
+    """
+    previous = load(outputs, pack_name) or {}
+    carried = sorted(name for name in previous if name not in values)
+    return save(outputs, pack_name, {**previous, **values}), carried
 
 
 def load(outputs: Path | str, pack_name: str) -> dict | None:

@@ -234,15 +234,23 @@ def main(argv: list[str] | None = None) -> int:
                     "which is too poor for it to judge anything"
                 )
 
-    reference_file = ref_mod.save(get_path(cfg, "references"), pack_path.name, references)
+    reference_file, carried = ref_mod.update(
+        get_path(cfg, "references"), pack_path.name, references
+    )
 
     print("\n" + "=" * 60)
     print(f"references written to {reference_file}")
     print("  scripts/evaluate_generator.py reads this file, so the baseline it")
     print("  reports against is the one actually measured here, on this pack.")
+    if carried:
+        # Named, not absorbed. CER comes from the raw CVL images rather than the
+        # pack, so a machine with the pack and not the sources measures two of
+        # the three -- and the third must survive rather than be deleted by the
+        # run that could not produce it.
+        print(f"  kept from an earlier run: {', '.join(carried)}")
     absent = ref_mod.missing(references)
     if absent:
-        print(f"  incomplete: {', '.join(absent)} not measured in this run")
+        print(f"  not measured in this run: {', '.join(absent)}")
 
     if failures:
         print("\nPROBLEMS:")
