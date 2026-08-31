@@ -24,7 +24,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > | FID floor | **19.06** | 33.72 |
 > | writer top-1 | **83.7%** | 66.9% |
 > | writer top-5 | **97.8%** | 90.1% |
-> | CER on real lines | **13.36%** (40 lines, many writers) | 12.33% (40 lines, one writer, unfiltered) |
+> | CER on real lines | **13.73%** (300 lines, many writers) | 12.33% (40 lines, one writer, unfiltered) |
 >
 > **The FID floor nearly halved.** A line holds a whole sentence, so lines vary
 > less from one another in Inception's feature space than isolated words do. Any
@@ -37,8 +37,14 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > **CER went slightly up, not down.** The phase-1 40 lines came from a single
 > writer whom TrOCR happened to read well. Sampling across writers is fairer and
-> harder. 40 lines is a small sample -- the Colab run uses 300 and will tighten
-> it.
+> harder. Re-measured over 300 lines it moved only from 13.36% to 13.73%, so the
+> 40-line estimate was already representative -- worth knowing, because it means
+> a cheap CER check is trustworthy when a full one is not affordable.
+>
+> **CER cannot be measured on Colab.** It reads the *raw* CVL line images rather
+> than the pack, and the 5 GB of sources are deliberately not copied to the VM.
+> That is why `references.update` merges rather than replaces: a machine that
+> measures two of the three must not delete the third.
 >
 > ### The immediate next task
 >
@@ -130,7 +136,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 |----|------|--------|-------------|
 | T13 | CVL line reader, with counted drops | **done** | ruff clean · 306 passed, 5 skipped · 10,862 of 13,473 lines kept, total_seen matches the disk exactly |
 | T14 | Line pack -> `cvl_lines_64.lmdb` | **done** | 310 passed, 5 skipped · 10,862 lines, 309 writers, 148 MB compacted · `check_data.py` all green |
-| T15 | Re-measure FID / retrieval / CER on lines | **done** | CPU, 2026-08-31: FID floor 19.06 · writer 83.7% top-1, 97.8% top-5 · CER 13.36% · FID(real, same real) 0.0000 |
+| T15 | Re-measure FID / retrieval / CER on lines | **done** | CPU, 2026-08-31: FID floor 19.06 · writer 83.7% top-1, 97.8% top-5 · CER 13.73% over 300 lines · FID(real, same real) 0.0000 |
 | T16 | Per-request token budget, then evaluate the generator | code done, **run pending** | budget and truncation counting tested; the Colab run is `notebooks/colab_eval.ipynb` |
 
 ## Waiting on Amri
@@ -166,7 +172,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 - **2026-08-31 — T15 done, and T16's code with it.** The line-level references are
   measured and committed: FID floor 19.06, writer retrieval 83.7% top-1 / 97.8% top-5,
-  CER 13.36%. It did not need a GPU — `check_metrics.py` generates nothing, and the
+  CER 13.73% over 300 lines (13.36% over 40 -- the cheap estimate held). It did not need a GPU — `check_metrics.py` generates nothing, and the
   220s-per-line figure belongs to generation alone. Two of the three moved far enough
   to change how a result reads: the FID floor nearly halved, so the word-level number
   would have made any generated set look almost twice as good as it is. They live in

@@ -48,7 +48,7 @@
 
 ```
 FID              19.06     שני חצאים של שורות אמיתיות
-CER              13.36%    שיעור הטעות של מודל הקריאה על שורות אמיתיות
+CER              13.73%    שיעור הטעות של מודל הקריאה על שורות אמיתיות
 זיהוי כותבים     83.7%     top-1 · 97.8% top-5
 חידוש אחרי ניתוק  0.000e+00 זהה ביט־לביט, אומת על T4
 ```
@@ -95,9 +95,9 @@ CER              13.36%    שיעור הטעות של מודל הקריאה על
 - שני נוטבוקים, שניהם מכילים **אפס לוגיקה** — רק קוראים לסקריפטים:
   `notebooks/colab_smoke.ipynb` (תשתית, שלב 1) ו־`notebooks/colab_eval.ipynb`
   (הערכת הגנרטור, שלב 2).
-- הנתונים ב‑Drive: `MyDrive/nib/cvl_words_64.lmdb`.
+- הנתונים ב‑Drive: `MyDrive/nib/cvl_words_64.lmdb` ו‑`cvl_lines_64.lmdb`.
 - **בדיקת מצב:** `.venv\Scripts\python.exe scripts\check_data.py`
-- **הבדיקות:** `.venv\Scripts\python.exe -m pytest -q` — כ‑250 בדיקות
+- **הבדיקות:** `.venv\Scripts\python.exe -m pytest -q` — כ‑325 בדיקות
 - **לוח המשימות:** https://claude.ai/code/artifact/01c251cf-a69b-4c24-8dc8-c6e7d72775af
   (אפשר לעדכן אותו — העבר את ה‑URL כפרמטר `url`)
 
