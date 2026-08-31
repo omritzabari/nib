@@ -96,35 +96,48 @@ def check_cvl(root: Path) -> list[Check]:
     return checks
 
 
-def check_pack(cfg) -> Check:
-    """The packed dataset, which is all a training machine actually needs.
+PACK_LABELS = {"words": "word pack", "lines": "line pack"}
+
+
+def check_pack(cfg, unit: str, required: bool = True) -> Check:
+    """One packed dataset, which is all a training machine actually needs.
 
     On Colab only the pack is copied across -- the 5 GB of raw CVL and the
     personal photos stay on the laptop, and there is no reason for them to be
     anywhere else. Reporting their absence as a failure there would print red on
     every run, which teaches you to ignore the check entirely.
+
+    There are two packs because there are two units. The word pack is what the
+    style embedding was trained on and what every phase-1 reference number was
+    measured against; the line pack is what the generator is evaluated on. Only
+    the word pack is required, because a machine set up for one job should not be
+    told it is broken for lacking the other.
     """
     from nib.data.pack import PackReader, is_complete
 
-    path = get_path(cfg, "processed") / f"cvl_words_{cfg.data.image_height}.lmdb"
+    label = PACK_LABELS[unit]
+    path = get_path(cfg, "processed") / f"cvl_{unit}_{cfg.data.image_height}.lmdb"
     if not path.exists():
         return Check(
-            "packed dataset",
+            label,
             MISSING,
-            f"not at {path}. Build it with scripts/build_index.py, or copy it here.",
+            f"not at {path}. Build it with scripts/build_index.py --unit {unit}, or copy it here.",
+            required,
         )
     if not is_complete(path):
         return Check(
-            "packed dataset",
+            label,
             PARTIAL,
             f"{path} exists but has no header -- still being written, or truncated.",
+            required,
         )
     with PackReader(path) as reader:
         return Check(
-            "packed dataset",
+            label,
             OK,
-            f"{len(reader)} words, {reader.header.writers} writers, "
+            f"{len(reader)} {unit}, {reader.header.writers} writers, "
             f"{reader.header.height}px, {reader.data_size_bytes() / 1024**2:.0f} MB",
+            required,
         )
 
 
@@ -194,13 +207,14 @@ def check_iam(root: Path) -> Check:
 
 
 CAPABILITIES = [
-    ("training and evaluation runs", ["packed dataset"]),
-    ("writer-disjoint split", ["packed dataset"]),
-    ("writer retrieval metric", ["packed dataset"]),
+    ("training and evaluation runs", ["word pack"]),
+    ("writer-disjoint split", ["word pack"]),
+    ("writer retrieval metric", ["word pack"]),
     ("deception study controls", ["CVL images"]),
     ("normalisation work (T6)", ["CVL images", "your handwriting"]),
-    ("FID reference set", ["packed dataset"]),
+    ("FID reference set", ["word pack"]),
     ("CER baseline", ["CVL images"]),
+    ("generation, and its evaluation on lines", ["line pack"]),
 ]
 
 
@@ -210,13 +224,14 @@ def main() -> int:
     raw = get_path(cfg, "raw")
 
     checks: list[Check] = []
-    pack = check_pack(cfg)
-    checks.append(pack)
+    word_pack = check_pack(cfg, "words")
+    line_pack = check_pack(cfg, "lines", required=False)
+    checks.extend([word_pack, line_pack])
 
-    # A pack is derived from the raw sources, so having it makes them optional.
+    # A pack is derived from the raw sources, so having one makes them optional.
     # They are still needed to *rebuild* it, and for T6, which is why they are
     # reported rather than hidden.
-    has_pack = pack.status == OK
+    has_pack = OK in {word_pack.status, line_pack.status}
     for check in check_cvl(raw / "cvl"):
         check.required = check.required and not has_pack
         checks.append(check)

@@ -8,13 +8,15 @@ would corrupt a run that starts from it.
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pytest
 
 from nib.config import find_repo_root, load_config
 from nib.data.pack import (
     HEADER_KEY,
-    PackedWord,
+    PackedSample,
     PackError,
     PackHeader,
     PackReader,
@@ -33,7 +35,7 @@ needs_pack = pytest.mark.skipif(
 
 def word(key="0001-1-0-0", writer="0001", text="Imagine", split="testset", height=64, width=100):
     rng = np.random.default_rng(abs(hash(key)) % 2**32)
-    return PackedWord(
+    return PackedSample(
         key=key,
         writer_id=writer,
         text=text,
@@ -130,7 +132,7 @@ def test_a_wrong_height_is_refused(tmp_path):
 
 
 def test_a_colour_image_is_refused(tmp_path):
-    coloured = PackedWord("k", "0001", "x", "testset", np.zeros((64, 20, 3), np.uint8))
+    coloured = PackedSample("k", "0001", "x", "testset", np.zeros((64, 20, 3), np.uint8))
     with pytest.raises(PackError, match="grayscale"):
         build(tmp_path / "p.lmdb", [coloured])
 
@@ -293,3 +295,75 @@ def test_the_real_pack_covers_the_committed_split():
     assert not missing, (
         f"{len(missing)} writers in the pack are absent from the split: {sorted(missing)[:5]}"
     )
+
+
+# --------------------------------------------------------------------------
+# the line pack
+#
+# Words and lines share a format, which is convenient and is also the way the
+# two could be confused. The tests below check the property that actually
+# separates them, not just the label: a line is several words wide.
+# --------------------------------------------------------------------------
+
+LINE_PACK = find_repo_root() / "data" / "processed" / "cvl_lines_64.lmdb"
+EXPECTED_LINES = 10862
+
+needs_line_pack = pytest.mark.skipif(
+    not is_complete(LINE_PACK),
+    reason=f"no complete pack at {LINE_PACK}; run scripts/build_index.py --unit lines",
+)
+
+
+@needs_line_pack
+def test_the_line_pack_declares_what_it_holds():
+    """The header is how a file says which unit it carries. A pack that does not
+    say would have to be guessed at from its contents, and a wrong guess would
+    reach the generator as a silently wrong style reference."""
+    with PackReader(LINE_PACK) as reader:
+        assert reader.header.source == "cvl-lines"
+        assert reader.header.count == EXPECTED_LINES
+        assert reader.header.height == 64
+
+
+@needs_line_pack
+def test_the_line_pack_really_holds_lines_and_not_words():
+    """The discriminating property, checked rather than trusted.
+
+    Building the line pack with the word scanner would produce a file that looks
+    healthy, passes every other test, and quietly evaluates the generator on the
+    unit it fails at. So: a line is several words wide and its text has spaces in
+    it. A word pack averages 156px at this height; a line pack averages ~880.
+    """
+    with PackReader(LINE_PACK) as reader:
+        step = max(1, len(reader) // 300)
+        records = [reader[i] for i in range(0, len(reader), step)]
+
+    widths = [r.image.shape[1] for r in records]
+    multiword = [r for r in records if " " in r.text]
+
+    assert sum(widths) / len(widths) > 400, "these are word crops, not lines"
+    assert len(multiword) > 0.9 * len(records), "most 'lines' hold a single word"
+
+
+@needs_line_pack
+def test_the_line_pack_keys_are_line_ids():
+    with PackReader(LINE_PACK) as reader:
+        keys = reader.keys[:50]
+    assert all(re.fullmatch(r"\d{4}-\d+-\d+", key) for key in keys), keys[:5]
+
+
+@needs_line_pack
+def test_the_line_pack_covers_every_held_out_writer():
+    """The evaluation reports a number per held-out writer. One missing writer
+    would shrink the population without saying so."""
+    from nib.data.split import WriterSplit
+
+    split_path = find_repo_root() / "configs" / "splits" / "cvl-writer-disjoint.json"
+    if not split_path.is_file():
+        pytest.skip("no committed split")
+
+    with PackReader(LINE_PACK) as reader:
+        in_pack = set(reader.writers())
+    held_out = set(WriterSplit.load(split_path).writers["test"])
+
+    assert held_out <= in_pack, f"missing from the pack: {sorted(held_out - in_pack)}"

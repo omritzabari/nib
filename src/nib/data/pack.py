@@ -1,9 +1,15 @@
-"""Pack word images into a single LMDB file.
+"""Pack cropped handwriting images into a single LMDB file.
 
 The problem this solves is the one the brief calls trap number one. CVL's word
 images are 99,904 separate files. Reading many small files from Google Drive is
 slow enough that the GPU sits idle waiting for them -- Drive is a network
 filesystem with per-file overhead, and the overhead, not the bytes, is the cost.
+
+**Words or lines.** The record shape is the same for both -- an image, a writer, a
+transcription -- so one pack format serves both units, and which unit a given
+file holds is recorded in its header's ``source``. The distinction matters
+downstream rather than here: the generator is trained on lines and evaluated on
+lines, while the style embedding was trained on words.
 
 So: pack once into a single file, keep that file on Drive, and copy it to the
 Colab VM's local disk at the start of each session. One large sequential copy
@@ -53,8 +59,8 @@ class PackError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class PackedWord:
-    """One word, as stored."""
+class PackedSample:
+    """One cropped image and its labels, as stored. A word or a whole line."""
 
     key: str
     writer_id: str
@@ -88,28 +94,30 @@ class PackWriter:
         self._writers: set[str] = set()
         self._pending: list[tuple[bytes, bytes]] = []
 
-    def add(self, word: PackedWord) -> None:
-        if word.image.ndim != 2:
-            raise PackError(f"{word.key}: expected a grayscale image, got shape {word.image.shape}")
-        if word.image.shape[0] != self.header.height:
+    def add(self, sample: PackedSample) -> None:
+        if sample.image.ndim != 2:
             raise PackError(
-                f"{word.key}: height {word.image.shape[0]} does not match the pack's "
+                f"{sample.key}: expected a grayscale image, got shape {sample.image.shape}"
+            )
+        if sample.image.shape[0] != self.header.height:
+            raise PackError(
+                f"{sample.key}: height {sample.image.shape[0]} does not match the pack's "
                 f"declared height {self.header.height}"
             )
 
-        ok, encoded = cv2.imencode(".png", word.image)
+        ok, encoded = cv2.imencode(".png", sample.image)
         if not ok:
-            raise PackError(f"{word.key}: PNG encoding failed")
+            raise PackError(f"{sample.key}: PNG encoding failed")
 
         payload = {
-            "writer_id": word.writer_id,
-            "text": word.text,
-            "split": word.split,
+            "writer_id": sample.writer_id,
+            "text": sample.text,
+            "split": sample.split,
             "png": encoded.tobytes(),
         }
-        self._pending.append((word.key.encode(), pickle.dumps(payload, protocol=5)))
-        self._keys.append(word.key)
-        self._writers.add(word.writer_id)
+        self._pending.append((sample.key.encode(), pickle.dumps(payload, protocol=5)))
+        self._keys.append(sample.key)
+        self._writers.add(sample.writer_id)
         if len(self._pending) >= WRITE_BATCH:
             self._flush()
 
@@ -194,7 +202,7 @@ class PackReader:
     def __len__(self) -> int:
         return len(self.keys)
 
-    def __getitem__(self, index: int | str) -> PackedWord:
+    def __getitem__(self, index: int | str) -> PackedSample:
         key = self.keys[index] if isinstance(index, int) else index
         with self._open().begin() as txn:
             raw = txn.get(key.encode())
@@ -202,7 +210,7 @@ class PackReader:
             raise KeyError(f"{key} is not in {self.path}")
         payload = pickle.loads(raw)
         image = cv2.imdecode(np.frombuffer(payload["png"], np.uint8), cv2.IMREAD_GRAYSCALE)
-        return PackedWord(
+        return PackedSample(
             key=key,
             writer_id=payload["writer_id"],
             text=payload["text"],
@@ -210,7 +218,7 @@ class PackReader:
             image=image,
         )
 
-    def __iter__(self) -> Iterator[PackedWord]:
+    def __iter__(self) -> Iterator[PackedSample]:
         for index in range(len(self)):
             yield self[index]
 

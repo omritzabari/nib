@@ -15,12 +15,28 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > ### The immediate next task
 >
-> **T14 — pack the clean lines into `data/processed/cvl_lines_64.lmdb`.**
-> Then compact it and put a copy under `data/processed/upload/` for Drive.
-> `scripts/build_index.py` is the template; the difference is that it reads
-> `nib.data.cvl_lines.scan_lines` and normalises with `normalise_line`.
+> **T15 — re-measure the three references on lines, on Colab.**
 >
-> Phase 2 runs T13 -> T16. T13 is done; T14 is local, T15 and T16 are Colab.
+> ```bash
+> python scripts/check_metrics.py --pack data/processed/cvl_lines_64.lmdb \
+>     --samples 300 --cer-lines 300 --device cuda
+> ```
+>
+> No new code: `check_metrics.py` already takes `--pack`, and its CER path now
+> goes through `nib.data.cvl_lines`. What comes out replaces FID 33.72,
+> retrieval 66.9% and CER 12.33% with their line-level equivalents, which is
+> what T16's numbers have to be read against.
+>
+> Two things to sort out when setting the run up:
+> - `notebooks/colab_smoke.ipynb` copies only `cvl_words_64.lmdb` from Drive. It
+>   needs `cvl_lines_64.lmdb` too, and both packs must be uploaded from
+>   `data/processed/upload/` -- **never** from `data/processed/`, where LMDB's
+>   reserved map size makes each file look like 8 GB.
+> - The writer embedding was trained on word crops. Applying it to lines is off
+>   its training distribution, so whatever retrieval scores on real lines *is*
+>   the honest ceiling for this setup -- report it, do not retrain to flatter it.
+>
+> Phase 2 runs T13 -> T16. T13 and T14 are done; T15 and T16 are Colab.
 >
 > ### Why the plan grew from two steps to four (2026-08-31)
 >
@@ -93,8 +109,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | ID | Task | Status | Verified by |
 |----|------|--------|-------------|
 | T13 | CVL line reader, with counted drops | **done** | ruff clean · 306 passed, 5 skipped · 10,862 of 13,473 lines kept, total_seen matches the disk exactly |
-| T14 | Line pack -> `cvl_lines_64.lmdb` | next | |
-| T15 | Re-measure FID / retrieval / CER on lines | todo | |
+| T14 | Line pack -> `cvl_lines_64.lmdb` | **done** | 310 passed, 5 skipped · 10,862 lines, 309 writers, 148 MB compacted · `check_data.py` all green |
+| T15 | Re-measure FID / retrieval / CER on lines | next | |
 | T16 | Per-request token budget, then evaluate the generator | todo | |
 
 ## Waiting on Amri
@@ -127,6 +143,20 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-08-31 — T14 done.** `cvl_lines_64.lmdb`: 10,862 lines, 309 writers, 148 MB
+  compacted, built in 245s. One script packs both units — `build_index.py --unit
+  lines|words` — because the two differ in exactly four things (reader, normaliser,
+  key, header source) and those now sit in a `UNITS` table with everything else
+  shared. A second near-identical script was the easier thing to write and the worse
+  thing to read. `PackedWord` is now `PackedSample`; the record holds lines too and a
+  name that lies is worse than a mechanical rename. The compacted upload copy is
+  produced by the build rather than left as a step to remember — the module already
+  said the shipped artefact is always compacted, and forgetting it once already cost
+  an 8 GB upload. `check_data.py` reports both packs; only the word pack is required,
+  since a machine set up for one job should not be told it is broken for lacking the
+  other. Two tests exist specifically to catch a line pack built with the word
+  scanner: mean width over 400px, and spaces in the text.
 
 - **2026-08-31 — T13 done.** `nib.data.cvl_lines` reads CVL's 13,473 line crops and
   reassembles each transcription from the word filenames. 10,862 kept; the rest are

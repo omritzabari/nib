@@ -20,7 +20,7 @@ from nib.data.dataset import (
     WordDataset,
     collate,
 )
-from nib.data.pack import PackedWord, PackHeader, PackReader, PackWriter
+from nib.data.pack import PackedSample, PackHeader, PackReader, PackWriter
 from nib.data.split import WriterSplit
 
 torch = pytest.importorskip("torch", reason="torch is an optional extra")
@@ -35,7 +35,7 @@ def make_pack(tmp_path, writers=4, per_writer=10, height=64):
         for w in range(writers):
             for i in range(per_writer):
                 writer.add(
-                    PackedWord(
+                    PackedSample(
                         key=f"{w:04d}-1-0-{i}",
                         writer_id=f"{w:04d}",
                         text=WORDS[i % len(WORDS)],
@@ -149,7 +149,7 @@ def test_writers_with_too_few_words_are_dropped_and_reported(tmp_path):
         for w, count in [("0001", 20), ("0002", 2)]:
             for i in range(count):
                 writer.add(
-                    PackedWord(
+                    PackedSample(
                         f"{w}-1-0-{i}",
                         w,
                         "word",
