@@ -32,6 +32,7 @@ import numpy as np
 from nib.config import get_path, load_config
 from nib.data.pack import PackReader
 from nib.engine.metrics import cer as cer_mod
+from nib.engine.metrics import references as ref_mod
 from nib.engine.metrics.fid import InceptionFeatures, compute_fid
 from nib.engine.metrics.writer import RETRIEVAL_FLOOR, WriterRetrieval
 
@@ -145,6 +146,13 @@ def main(argv: list[str] | None = None) -> int:
 
     failures: list[str] = []
 
+    # What this run measures, written out at the end. The three numbers are the
+    # baseline every generated result is read against, and they are unit-specific
+    # -- a generated *line* compared to a floor measured on *words* is comparing
+    # different things. Writing them to a file rather than leaving them in the
+    # console means the next run reads them instead of someone retyping them.
+    references: dict = {"pack": pack_path.name, "samples": args.samples}
+
     # ---- FID ---------------------------------------------------------------
     print("\n" + "=" * 60)
     print("FID -- loading Inception")
@@ -158,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         failures.append(f"FID against itself is {identical.value:.3f}, not ~0")
 
     disjoint = compute_fid(features_a, features_b)
+    references["fid_floor"] = disjoint.value
     print(f"FID(real, other real)  {disjoint.value:8.4f}   the floor for any model")
     if disjoint.value <= identical.value:
         failures.append("two disjoint real halves scored no worse than a set against itself")
@@ -176,6 +185,9 @@ def main(argv: list[str] | None = None) -> int:
         retrieval = WriterRetrieval(embedder)
         retrieval.fit([r.image for r in gallery], [r.writer_id for r in gallery])
         result = retrieval.evaluate([r.image for r in queries], [r.writer_id for r in queries])
+        references["retrieval_real"] = result.top1
+        references["retrieval_top5_real"] = result.topk
+        references["retrieval_writers"] = len({r.writer_id for r in queries})
         print("\n" + result.summary())
         if result.top1 < RETRIEVAL_FLOOR:
             failures.append(
@@ -207,6 +219,8 @@ def main(argv: list[str] | None = None) -> int:
                 generated_images=[image for image, _ in pairs],
                 targets=[text for _, text in pairs],
             )
+            references["cer_real"] = result.generated
+            references["cer_lines"] = result.num_samples
             print(f"\nCER on REAL lines   {result.generated:.2%}   over {result.num_samples}")
             print("  the recogniser's own error rate, and the baseline every generated")
             print("  CER must be reported against. Part of it is punctuation TrOCR adds")
@@ -220,13 +234,22 @@ def main(argv: list[str] | None = None) -> int:
                     "which is too poor for it to judge anything"
                 )
 
+    reference_file = ref_mod.save(get_path(cfg, "outputs"), pack_path.name, references)
+
     print("\n" + "=" * 60)
+    print(f"references written to {reference_file}")
+    print("  scripts/evaluate_generator.py reads this file, so the baseline it")
+    print("  reports against is the one actually measured here, on this pack.")
+    absent = ref_mod.missing(references)
+    if absent:
+        print(f"  incomplete: {', '.join(absent)} not measured in this run")
+
     if failures:
-        print("PROBLEMS:")
+        print("\nPROBLEMS:")
         for failure in failures:
             print(f"  - {failure}")
         return 1
-    print("all metric sanity checks passed")
+    print("\nall metric sanity checks passed")
     return 0
 
 

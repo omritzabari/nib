@@ -340,3 +340,50 @@ def test_embeddings_are_length_normalised():
     every comparison regardless of style."""
     scaled = writer_mod._normalise(np.array([[3.0, 4.0], [1.0, 0.0]]))
     assert np.allclose(np.linalg.norm(scaled, axis=1), 1.0)
+
+
+# ---------------------------------------------------------------------------
+# reference numbers
+#
+# The three baselines are properties of a pack, not of the project. These tests
+# guard the one thing that would silently invalidate every comparison: two packs
+# sharing a file, so a generated line ends up scored against a word-level floor.
+# ---------------------------------------------------------------------------
+
+
+def test_two_packs_do_not_share_a_reference_file(tmp_path):
+    from nib.engine.metrics import references as ref
+
+    assert ref.path_for(tmp_path, "cvl_lines_64.lmdb") != ref.path_for(
+        tmp_path, "cvl_words_64.lmdb"
+    )
+
+
+def test_the_reference_file_is_named_after_its_pack(tmp_path):
+    from nib.engine.metrics import references as ref
+
+    assert ref.path_for(tmp_path, "cvl_lines_64.lmdb").name == "references_cvl_lines_64.json"
+
+
+def test_references_round_trip(tmp_path):
+    from nib.engine.metrics import references as ref
+
+    values = {"fid_floor": 41.2, "cer_real": 0.09, "retrieval_real": 0.55, "pack": "p.lmdb"}
+    ref.save(tmp_path / "outputs", "cvl_lines_64.lmdb", values)
+
+    assert ref.load(tmp_path / "outputs", "cvl_lines_64.lmdb") == values
+
+
+def test_unmeasured_references_are_none_rather_than_a_default(tmp_path):
+    """A caller handed some other pack's numbers would report a comparison it
+    never made. None forces the caller to say so."""
+    from nib.engine.metrics import references as ref
+
+    assert ref.load(tmp_path, "never_measured.lmdb") is None
+
+
+def test_missing_names_the_baselines_a_run_did_not_produce(tmp_path):
+    from nib.engine.metrics import references as ref
+
+    assert ref.missing({"fid_floor": 1.0}) == ["cer_real", "retrieval_real"]
+    assert ref.missing({"fid_floor": 1.0, "cer_real": 0.1, "retrieval_real": 0.5}) == []

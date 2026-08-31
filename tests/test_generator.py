@@ -169,3 +169,78 @@ def test_a_fake_generator_round_trips_through_validation():
     images = Fake().generate(requests)
     check_output(images, requests, expected_height=64)
     assert images[1].shape[1] > images[0].shape[1], "width should follow the text"
+
+
+# ---------------------------------------------------------------------------
+# Emuru's token budget
+#
+# No model is loaded here either. token_budget is a module-level pure function
+# precisely so the arithmetic that decides whether a line can finish is testable
+# without a 3 GB download -- and that arithmetic is where the last bug lived.
+# ---------------------------------------------------------------------------
+
+
+def test_the_budget_grows_with_the_text():
+    from nib.models.emuru import token_budget
+
+    assert token_budget("a" * 20) < token_budget("a" * 60)
+
+
+def test_an_average_real_line_gets_room_to_finish():
+    """The regression this whole change exists for.
+
+    A real CVL line at 64px averages 40 characters and 886 pixels. The old flat
+    budget of 96 tokens was 768 pixels, so the model ran out of canvas before the
+    sentence ended and the truncation was recorded as the model failing to stop.
+    """
+    from nib.models.emuru import PIXELS_PER_TOKEN, token_budget
+
+    assert token_budget("x" * 40) * PIXELS_PER_TOKEN > 886
+
+
+def test_the_longest_real_line_still_fits_under_the_cap():
+    """84 characters and 1885 pixels is the widest line in the pack."""
+    from nib.models.emuru import MAX_TOKENS, PIXELS_PER_TOKEN, token_budget
+
+    assert token_budget("x" * 84) * PIXELS_PER_TOKEN >= 1885
+    assert token_budget("x" * 84) <= MAX_TOKENS
+
+
+def test_the_budget_is_clamped_at_both_ends():
+    from nib.models.emuru import MAX_TOKENS, MIN_TOKENS, token_budget
+
+    assert token_budget("a") == MIN_TOKENS
+    assert token_budget("a" * 10_000) == MAX_TOKENS
+
+
+def test_an_empty_log_reports_nothing_rather_than_dividing_by_zero():
+    from nib.models.emuru import TruncationLog
+
+    log = TruncationLog()
+    assert log.rate == 0.0
+    assert "nothing generated" in log.summary()
+
+
+def test_a_clean_run_says_so_explicitly():
+    """Silence would be indistinguishable from the counter never running."""
+    from nib.models.emuru import TruncationLog
+
+    log = TruncationLog(generated=10)
+    assert log.rate == 0.0
+    assert "0 of 10" in log.summary()
+
+
+def test_truncations_are_counted_and_named():
+    from nib.models.emuru import Truncation, TruncationLog
+
+    log = TruncationLog(
+        generated=4,
+        events=[
+            Truncation(text="a short one", width=760, budget=96),
+            Truncation(text="a considerably longer target line", width=1520, budget=192),
+        ],
+    )
+
+    assert log.rate == 0.5
+    assert "2 of 4" in log.summary()
+    assert "33 chars" in log.summary()

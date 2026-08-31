@@ -1,27 +1,36 @@
 """Generate handwriting in real writers' hands, and score it against the references.
 
+    python scripts/check_metrics.py --pack data/processed/cvl_lines_64.lmdb
     python scripts/evaluate_generator.py --generator emuru --samples 300
 
 This produces the project's first real numbers. Everything before it built the
 ruler; this is the first thing measured with it.
+
+**Run check_metrics.py on the same pack first.** It measures what *real*
+handwriting scores on that pack and writes the figures to
+``outputs/references_<pack>.json``, which this script reads. Without that file
+the only baseline available is the phase-1 one, measured on word crops -- and a
+generated line held against a word-level FID floor is being compared to a
+different distribution. The fallback still runs, and says so in every line of
+output it touches.
 
 **Held-out writers only.** Style references and target texts come from the test
 side of the committed split -- 94 writers no model in this project has trained on.
 Scoring on training writers would flatter every number and answer a question
 nobody asked.
 
-**Each writer's own words, and never the target's own image.** The style samples
-are real words by that writer; the text to generate is a *different* word by the
-same writer, so a real image of exactly that word in exactly that hand exists to
-compare against. The generator never sees it.
+**Lines, not words.** Emuru generates lines natively, and fixing a word crop to a
+common height destroys relative scale, which is part of how a hand looks. The
+default unit is therefore ``lines``.
 
-The three numbers land beside the references measured in phase 1::
+**Each writer's own text, and never the target's own image.** The style sample is
+a real line by that writer; the text to generate is a *different* line by the
+same writer, so a real image of exactly that text in exactly that hand exists to
+compare against. The generator never sees it, and it is kept out of the retrieval
+gallery too -- otherwise a match would partly be shared content rather than a
+recognised hand.
 
-    FID              33.72   two disjoint halves of real handwriting
-    CER              12.33%  the recogniser's own error rate on real lines
-    writer top-1     66.9%   the embedding's accuracy on real writers
-
-Those are not targets to beat -- they are what *real handwriting* scores. They are
+The references are not targets to beat. They are what *real handwriting* scores:
 the ceiling, and the distance from them is the result.
 """
 
@@ -45,14 +54,49 @@ from nib.engine.metrics.fid import InceptionFeatures, compute_fid
 from nib.engine.metrics.writer import WriterRetrieval
 from nib.models.generator import GenerationRequest, check_output, to_uint8
 
-REFERENCE = {"fid_floor": 33.72, "cer_real": 0.1233, "retrieval_real": 0.669}
+PHASE1_WORD_REFERENCE = {
+    "fid_floor": 33.72,
+    "cer_real": 0.1233,
+    "retrieval_real": 0.669,
+    "pack": "cvl_words_64.lmdb (phase 1, WORD crops)",
+}
+"""The phase-1 numbers, kept only as a last resort.
+
+They were measured on word crops. A generated *line* compared against them is
+being compared to a different distribution, so `scripts/check_metrics.py` must be
+run on the same pack first -- it writes the real figures next to the outputs and
+this script reads them. These constants exist so a run without that file still
+produces something, loudly labelled.
+"""
+
+
+def load_references(cfg, pack_name: str) -> tuple[dict, str]:
+    """The baseline for this pack, and where it came from.
+
+    The source string is printed with every result. A number whose provenance is
+    not stated beside it is one nobody can check.
+    """
+    from nib.engine.metrics import references as ref_mod
+
+    measured = ref_mod.load(get_path(cfg, "outputs"), pack_name)
+    if measured is None:
+        return PHASE1_WORD_REFERENCE, (
+            f"NO measured references for {pack_name}. Falling back to phase-1 "
+            "WORD-level numbers, which are not a valid baseline for lines. Run "
+            f"scripts/check_metrics.py --pack .../{pack_name} first."
+        )
+    absent = ref_mod.missing(measured)
+    note = f"measured on {measured.get('pack', pack_name)}"
+    if absent:
+        note += f" -- incomplete, missing {', '.join(absent)}"
+    return {**PHASE1_WORD_REFERENCE, **measured}, note
 
 
 def build_requests(pack, writers, style_refs, count, seed):
-    """One request per target word: that writer's other words as style.
+    """One request per target sample: that writer's other samples as style.
 
-    Returns the requests alongside the real image of each target word, which is
-    what the comparison needs -- and which the generator is never shown.
+    Returns the requests alongside the real image of each target, which is what
+    the comparison needs -- and which the generator is never shown.
     """
     rng = random.Random(seed)
     by_writer = pack.writers()
@@ -60,7 +104,7 @@ def build_requests(pack, writers, style_refs, count, seed):
 
     eligible = [w for w in writers if len(by_writer.get(w, [])) >= style_refs + 2]
     if not eligible:
-        raise RuntimeError(f"no held-out writer has {style_refs + 2} words")
+        raise RuntimeError(f"no held-out writer has {style_refs + 2} samples")
 
     while len(requests) < count:
         writer = rng.choice(eligible)
@@ -90,8 +134,22 @@ def load_generator(name: str, device: str, height: int):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generator", default="emuru")
+    parser.add_argument(
+        "--unit",
+        choices=("lines", "words"),
+        default="lines",
+        help="which pack to draw from. Lines: Emuru generates lines natively, and "
+        "fixing a word to a common height destroys the relative scale that is part "
+        "of how a hand looks.",
+    )
     parser.add_argument("--samples", type=int, default=300)
-    parser.add_argument("--style-refs", type=int, default=5)
+    parser.add_argument(
+        "--style-refs",
+        type=int,
+        default=1,
+        help="style samples per request. Emuru uses the first and ignores the rest; "
+        "the flag exists for generators that take several.",
+    )
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default=None)
     parser.add_argument("--save-images", type=int, default=32)
@@ -103,10 +161,11 @@ def main(argv: list[str] | None = None) -> int:
     height = int(cfg.data.image_height)
 
     ensure_dirs(cfg, "outputs")
-    out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}"
+    out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
 
-    pack = PackReader(get_path(cfg, "processed") / f"cvl_words_{height}.lmdb")
+    pack = PackReader(get_path(cfg, "processed") / f"cvl_{args.unit}_{height}.lmdb")
+    print(f"pack               {pack.path.name}  ({pack.header.source})")
     split = WriterSplit.load(repo / "configs" / "splits" / "cvl-writer-disjoint.json")
     held_out = [w for w in split.writers["test"] if w in pack.writers()]
     print(f"held-out writers   {len(held_out)}  (never trained on by anything here)")
@@ -136,6 +195,16 @@ def main(argv: list[str] | None = None) -> int:
         f"\ngenerated {len(generated)} in {elapsed / 60:.1f} min ({len(generated) / elapsed:.2f}/s)"
     )
 
+    # A truncated line is a real output with its ending cut off, so it is scored
+    # rather than dropped -- and a CER read over silently truncated text would be
+    # measuring the budget, not the model.
+    log = getattr(generator, "truncations", None)
+    if log is not None:
+        print("\n" + log.summary())
+        results_truncation = {"truncated": len(log.events), "truncation_rate": log.rate}
+    else:
+        results_truncation = {}
+
     for i in range(min(args.save_images, len(generated))):
         pair = np.full(
             (height * 2 + 8, max(generated[i].shape[1], truths[i].image.shape[1])),
@@ -148,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"samples            {out_dir / 'samples'}  (real on top, generated below)")
 
     results = _measure(cfg, generated, truths, held_out, pack, device, out_dir)
+    results.update(results_truncation)
     pack.close()
 
     (out_dir / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
@@ -159,24 +229,35 @@ def _measure(cfg, generated, truths, held_out, pack, device, out_dir):
     real = [t.image for t in truths]
     results: dict = {"count": len(generated)}
 
+    reference, provenance = load_references(cfg, pack.path.name)
+    results["reference_source"] = provenance
+    print("\n" + "=" * 62)
+    print(f"baseline   {provenance}")
+
     print("\n" + "=" * 62)
     print("FID -- does it look like handwriting at all")
     inception = InceptionFeatures(device=device)
     fid = compute_fid(inception(real), inception(generated))
     results["fid"] = fid.value
     print(f"  generated  {fid.value:8.2f}")
-    print(f"  reference  {REFERENCE['fid_floor']:8.2f}   two halves of real handwriting")
-    print(f"  -> {fid.value / REFERENCE['fid_floor']:.1f}x the floor")
+    print(f"  reference  {reference['fid_floor']:8.2f}   two halves of real handwriting")
+    print(f"  -> {fid.value / reference['fid_floor']:.1f}x the floor")
 
     print("\n" + "=" * 62)
     print("writer retrieval -- is it in the RIGHT hand")
     embedder, source = _embedder(cfg, device)
     print(f"  embedder: {source}")
+    # The gallery must not contain the very samples that were generated from.
+    # Their real images say the same words as the generated ones, so a match
+    # would partly be the recogniser noticing shared content rather than the
+    # embedding recognising a hand -- which is the thing being measured.
+    targets = {truth.key for truth in truths}
+
     gallery, gids = [], []
     by_writer = pack.writers()
     rng = random.Random(int(cfg.seed))
     for writer in held_out:
-        keys = sorted(by_writer.get(writer, []))
+        keys = sorted(key for key in by_writer.get(writer, []) if key not in targets)
         if len(keys) >= 12:
             for key in rng.sample(keys, 12):
                 gallery.append(pack[key].image)
@@ -187,11 +268,11 @@ def _measure(cfg, generated, truths, held_out, pack, device, out_dir):
     results["retrieval_top1"] = scored.top1
     results["retrieval_top5"] = scored.topk
     print(f"  generated  {scored.top1:7.1%} top-1   {scored.topk:.1%} top-5")
-    print(f"  reference  {REFERENCE['retrieval_real']:7.1%}   real handwriting")
+    print(f"  reference  {reference['retrieval_real']:7.1%}   real handwriting")
     print(f"  chance     {scored.chance:7.1%}")
     if scored.top1 < scored.chance * 3:
         print("  -> the style did NOT carry. The model is ignoring its style input.")
-    elif scored.top1 > REFERENCE["retrieval_real"] * 0.5:
+    elif scored.top1 > reference["retrieval_real"] * 0.5:
         print("  -> the style carried.")
     else:
         print("  -> the style partly carried.")
@@ -218,9 +299,9 @@ def _measure(cfg, generated, truths, held_out, pack, device, out_dir):
 
     print("\n" + "=" * 62)
     print("SUMMARY -- generated vs real")
-    print(f"  FID            {results['fid']:8.2f}   vs {REFERENCE['fid_floor']:.2f} for real")
+    print(f"  FID            {results['fid']:8.2f}   vs {reference['fid_floor']:.2f} for real")
     print(
-        f"  writer top-1   {results['retrieval_top1']:8.1%}   vs {REFERENCE['retrieval_real']:.1%} for real"
+        f"  writer top-1   {results['retrieval_top1']:8.1%}   vs {reference['retrieval_real']:.1%} for real"
     )
     print(f"  CER gap        {(scored_cer.gap or 0):+8.1%}   generated minus real")
     return results
