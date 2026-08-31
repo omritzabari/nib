@@ -6,16 +6,45 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **Phase 1 is finished, all three metrics included.** The writer embedding was
-> trained on Colab on 2026-08-31 and reaches **66.9% top-1 / 90.1% top-5** on the
-> 94 held-out writers, against a 30% floor and 1.1% chance.
+> **Phase 1 is complete (13/13). Phase 2 has begun and the model generates.**
 >
-> **Phase 2: connect the Emuru checkpoint.** The first time this project produces
-> handwriting. Everything it needs is proven: data, split, checkpointing,
-> tracking, three working metrics, and a Colab loop that resumes exactly.
+> On 2026-08-31 the project produced handwriting for the first time: held-out CVL
+> writer 0057, one real line as style, three lines that writer never wrote, in a
+> visibly matching hand. See `docs/phase2-first-generation.md` and
+> `outputs/probe_lines/lines_contrast.png`.
 >
-> One loose end worth doing early: pin torch. Local is 2.13, Colab is 2.11. It has
-> broken nothing, but a checkpoint written locally may not load there.
+> ### The immediate next task
+>
+> **Build a line-level pack, then run `scripts/evaluate_generator.py` on Colab.**
+> That produces the project's first real numbers against the phase-1 references.
+>
+> Two reasons it must be lines rather than the existing word pack:
+> - `normalise_word` stretches every crop to a fixed 64px, so a one-letter word
+>   becomes as tall as a line. Relative scale is destroyed, and word-level
+>   generation produced tiny faint marks and runaway outputs.
+> - Emuru generates lines natively. CVL ships 13,785 line images; their text is
+>   reassembled from the word filenames (see `_cvl_lines` in
+>   `scripts/check_metrics.py`).
+>
+> Apply `normalise_ink` when loading lines. Raw CVL lines are low-contrast, the
+> model faithfully reproduces what it is given, and that is the whole cause of the
+> faint output.
+>
+> **Run evaluation on Colab, not locally.** 220s per line on CPU; minutes on a T4.
+>
+> ### Known and open
+>
+> - Emuru needs the style sample's *transcription*. A user photographing a page
+>   has transcribed nothing, so the product must read it first -- TrOCR is already
+>   here for that, at TrOCR's accuracy. This constrains the architecture.
+> - Two of five word-level requests ran to the token limit instead of stopping.
+>   The known Emuru failure; its successor Eruku exists to fix it. Watch at line
+>   level.
+> - `data/processed/cvl_words_64.lmdb` shows 8 GB but holds 469 MB; it is sparse
+>   and locked by a stale handle. The compacted copy for uploading is at
+>   `data/processed/upload/cvl_words_64.lmdb`. A reboot clears the lock.
+> - transformers is pinned to 4.x. 5.x cannot load Emuru and breaks TrOCR's
+>   tokenizer -- the same version gap causes both.
 
 ## Status
 
