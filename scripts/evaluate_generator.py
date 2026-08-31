@@ -78,7 +78,7 @@ def load_references(cfg, pack_name: str) -> tuple[dict, str]:
     """
     from nib.engine.metrics import references as ref_mod
 
-    measured = ref_mod.load(get_path(cfg, "outputs"), pack_name)
+    measured = ref_mod.load(get_path(cfg, "references"), pack_name)
     if measured is None:
         return PHASE1_WORD_REFERENCE, (
             f"NO measured references for {pack_name}. Falling back to phase-1 "

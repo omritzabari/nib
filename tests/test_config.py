@@ -41,7 +41,7 @@ def test_interpolations_resolve_and_nest():
     If interpolation silently failed we would get the literal '${paths.raw}/iam'."""
     cfg = load_config()
     root = str(get_path(cfg, "root"))
-    for name in ["data", "raw", "processed", "iam", "personal", "checkpoints"]:
+    for name in ["data", "raw", "processed", "iam", "personal", "checkpoints", "references"]:
         value = str(get_path(cfg, name))
         assert "${" not in value, f"paths.{name} left unresolved"
         assert value.startswith(root), f"paths.{name} escaped the root"

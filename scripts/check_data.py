@@ -109,9 +109,12 @@ def check_pack(cfg, unit: str, required: bool = True) -> Check:
 
     There are two packs because there are two units. The word pack is what the
     style embedding was trained on and what every phase-1 reference number was
-    measured against; the line pack is what the generator is evaluated on. Only
-    the word pack is required, because a machine set up for one job should not be
-    told it is broken for lacking the other.
+    measured against; the line pack is what the generator is evaluated on.
+
+    Neither is required on its own -- see :func:`main`, which requires that *one*
+    of them be present. A Colab session set up to evaluate the generator copies
+    only the line pack across, and telling it that it is broken for lacking the
+    other would print red on every run, which teaches you to ignore the check.
     """
     from nib.data.pack import PackReader, is_complete
 
@@ -224,14 +227,20 @@ def main() -> int:
     raw = get_path(cfg, "raw")
 
     checks: list[Check] = []
-    word_pack = check_pack(cfg, "words")
+    word_pack = check_pack(cfg, "words", required=False)
     line_pack = check_pack(cfg, "lines", required=False)
     checks.extend([word_pack, line_pack])
+
+    # One pack is required; which one depends on the job, so neither is demanded
+    # by name. Only when both are absent do they become blocking -- and then both
+    # are reported, rather than one being picked to take the blame.
+    has_pack = OK in {word_pack.status, line_pack.status}
+    if not has_pack:
+        word_pack.required = line_pack.required = True
 
     # A pack is derived from the raw sources, so having one makes them optional.
     # They are still needed to *rebuild* it, and for T6, which is why they are
     # reported rather than hidden.
-    has_pack = OK in {word_pack.status, line_pack.status}
     for check in check_cvl(raw / "cvl"):
         check.required = check.required and not has_pack
         checks.append(check)

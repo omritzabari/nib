@@ -14,8 +14,12 @@ step where three figures are copied by hand from one Colab session into the next
 A baseline that is wrong by transcription is worse than no baseline at all,
 because nothing about it looks wrong.
 
-The file is small and human-readable on purpose: it ends up quoted in a report,
-and a number nobody can trace back to a run is a number nobody should trust.
+The file is small, human-readable, and **committed**, all on purpose. Committed
+for the same reason the writer split is: it has to survive the trip from the
+machine that measured it to the machine that generates, it has to survive
+re-downloading the dataset, and it is the artefact someone else needs in order to
+reproduce a number you published. A figure nobody can trace back to a run is a
+figure nobody should trust.
 """
 
 from __future__ import annotations

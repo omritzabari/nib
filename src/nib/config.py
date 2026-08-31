@@ -43,6 +43,16 @@ class PathsConfig:
     checkpoints: str = "${paths.root}/checkpoints"
     outputs: str = "${paths.root}/outputs"
 
+    references: str = "${paths.root}/references"
+    """Measured baselines, and the one output directory that is *committed*.
+
+    Everything else under ``outputs`` is a by-product of a run and is ignored by
+    git. These are different in kind: they are what real handwriting scores on a
+    given pack, they are what every generated result is reported against, and
+    they have to survive the trip from the machine that measured them to the one
+    that generates. Same reasoning as the committed writer split -- an artefact
+    someone else needs in order to reproduce a number you published."""
+
 
 @dataclass
 class DataConfig:

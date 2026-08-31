@@ -13,30 +13,50 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > visibly matching hand. See `docs/phase2-first-generation.md` and
 > `outputs/probe_lines/lines_contrast.png`.
 >
+> ### The references moved, and two of them moved a long way
+>
+> T15 is done and it did not need Colab -- `check_metrics.py` generates nothing,
+> it only runs Inception, the embedding and TrOCR over real images. Measured on
+> CPU, committed to `references/references_cvl_lines_64.json`:
+>
+> | | on **lines** (now) | on words (phase 1) |
+> |---|---|---|
+> | FID floor | **19.06** | 33.72 |
+> | writer top-1 | **83.7%** | 66.9% |
+> | writer top-5 | **97.8%** | 90.1% |
+> | CER on real lines | **13.36%** (40 lines, many writers) | 12.33% (40 lines, one writer, unfiltered) |
+>
+> **The FID floor nearly halved.** A line holds a whole sentence, so lines vary
+> less from one another in Inception's feature space than isolated words do. Any
+> generated set is now measured against a floor that is far closer to zero: a
+> result of 60 would have read as 1.8x the floor against words and is in fact
+> 3.1x against lines. The word-level number would have flattered every result.
+>
+> **Writer retrieval rose to 83.7%.** More handwriting per image means more
+> evidence of the hand. The bar for the generator is much higher than it looked.
+>
+> **CER went slightly up, not down.** The phase-1 40 lines came from a single
+> writer whom TrOCR happened to read well. Sampling across writers is fairer and
+> harder. 40 lines is a small sample -- the Colab run uses 300 and will tighten
+> it.
+>
 > ### The immediate next task
 >
-> **T15 — re-measure the three references on lines, on Colab.**
+> **T16 — generate 300 lines and score them.** Everything it needs is written:
 >
-> ```bash
-> python scripts/check_metrics.py --pack data/processed/cvl_lines_64.lmdb \
->     --samples 300 --cer-lines 300 --device cuda
-> ```
+> 1. Upload `data/processed/upload/cvl_lines_64.lmdb` (148 MB) to
+>    `MyDrive/nib/`. **Never** the copy in `data/processed/` -- LMDB reserves its
+>    map size up front, so that one is 8 GB on the wire.
+> 2. Open `notebooks/colab_eval.ipynb` and run it top to bottom.
 >
-> No new code: `check_metrics.py` already takes `--pack`, and its CER path now
-> goes through `nib.data.cvl_lines`. What comes out replaces FID 33.72,
-> retrieval 66.9% and CER 12.33% with their line-level equivalents, which is
-> what T16's numbers have to be read against.
+> It also needs `MyDrive/nib/checkpoints/writer_embedder.pt`, which should
+> already be there from the T11 run.
 >
-> Two things to sort out when setting the run up:
-> - `notebooks/colab_smoke.ipynb` copies only `cvl_words_64.lmdb` from Drive. It
->   needs `cvl_lines_64.lmdb` too, and both packs must be uploaded from
->   `data/processed/upload/` -- **never** from `data/processed/`, where LMDB's
->   reserved map size makes each file look like 8 GB.
-> - The writer embedding was trained on word crops. Applying it to lines is off
->   its training distribution, so whatever retrieval scores on real lines *is*
->   the honest ceiling for this setup -- report it, do not retrain to flatter it.
+> Watch the truncation count in the output. It is the check on whether the new
+> token budget is right; if it is high, `TOKENS_PER_CHAR` in
+> `src/nib/models/emuru.py` is too low.
 >
-> Phase 2 runs T13 -> T16. T13 and T14 are done; T15 and T16 are Colab.
+> Phase 2 runs T13 -> T16. Only T16 is left, and only it needs a GPU.
 >
 > ### Why the plan grew from two steps to four (2026-08-31)
 >
@@ -110,8 +130,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 |----|------|--------|-------------|
 | T13 | CVL line reader, with counted drops | **done** | ruff clean · 306 passed, 5 skipped · 10,862 of 13,473 lines kept, total_seen matches the disk exactly |
 | T14 | Line pack -> `cvl_lines_64.lmdb` | **done** | 310 passed, 5 skipped · 10,862 lines, 309 writers, 148 MB compacted · `check_data.py` all green |
-| T15 | Re-measure FID / retrieval / CER on lines | next | |
-| T16 | Per-request token budget, then evaluate the generator | todo | |
+| T15 | Re-measure FID / retrieval / CER on lines | **done** | CPU, 2026-08-31: FID floor 19.06 · writer 83.7% top-1, 97.8% top-5 · CER 13.36% · FID(real, same real) 0.0000 |
+| T16 | Per-request token budget, then evaluate the generator | code done, **run pending** | budget and truncation counting tested; the Colab run is `notebooks/colab_eval.ipynb` |
 
 ## Waiting on Amri
 
@@ -143,6 +163,22 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-08-31 — T15 done, and T16's code with it.** The line-level references are
+  measured and committed: FID floor 19.06, writer retrieval 83.7% top-1 / 97.8% top-5,
+  CER 13.36%. It did not need a GPU — `check_metrics.py` generates nothing, and the
+  220s-per-line figure belongs to generation alone. Two of the three moved far enough
+  to change how a result reads: the FID floor nearly halved, so the word-level number
+  would have made any generated set look almost twice as good as it is. They live in
+  `references/`, which is a committed directory rather than part of the ignored
+  `outputs/` — same reasoning as the committed writer split, since the numbers must
+  survive the trip to whichever machine generates. T16's code landed too: a token
+  budget from the text length, truncation counting, `--unit lines`, and a retrieval
+  gallery that excludes the target samples so a match cannot be credited to shared
+  content. `pyproject.toml` gained a `models` extra — the `transformers<5` pin was a
+  decision recorded in prose and enforced nowhere, so a fresh Colab session would have
+  installed 5.x and failed thirty minutes in. `notebooks/colab_eval.ipynb` runs the
+  whole thing and holds no logic.
 
 - **2026-08-31 — T14 done.** `cvl_lines_64.lmdb`: 10,862 lines, 309 writers, 148 MB
   compacted, built in 245s. One script packs both units — `build_index.py --unit

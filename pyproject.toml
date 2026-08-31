@@ -36,6 +36,26 @@ dependencies = [
 # cannot move. A checkpoint written by a newer torch may not load in an older one,
 # and the traffic in this project runs both ways.
 torch = ["torch==2.11.*", "torchvision==0.26.*"]
+
+# The generator and the metrics that judge it. Kept out of the base dependencies
+# because the data layer must install and run without downloading gigabytes of
+# model machinery -- the test suite does exactly that.
+#
+# **The transformers pin is load-bearing.** Emuru's own remote code defines
+# `_tied_weights_keys`; transformers 5.x looks for `all_tied_weights_keys` and so
+# cannot load the model at all. The same version gap breaks TrOCR's tokenizer.
+# One cause, both failures. Until this session the pin was a decision written in
+# PROGRESS.md and enforced nowhere, which meant a fresh Colab session would
+# install 5.x and fail thirty minutes in.
+models = [
+    "transformers>=4.38,<5",
+    "diffusers>=0.30",    # Emuru's VAE is a diffusers AutoencoderKL
+    "einops>=0.7",        # used inside Emuru's remote code
+    "safetensors>=0.4",
+    "sentencepiece>=0.2", # the T5 and byt5 tokenizers
+    "scipy>=1.11",        # the matrix square root inside FID
+]
+
 track = ["wandb>=0.16"]
 api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4"]

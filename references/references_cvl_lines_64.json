@@ -1,0 +1,10 @@
+{
+  "cer_lines": 40,
+  "cer_real": 0.13358538122243227,
+  "fid_floor": 19.061807583445187,
+  "pack": "cvl_lines_64.lmdb",
+  "retrieval_real": 0.8370786516853933,
+  "retrieval_top5_real": 0.9775280898876404,
+  "retrieval_writers": 116,
+  "samples": 300
+}

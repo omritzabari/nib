@@ -234,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
                     "which is too poor for it to judge anything"
                 )
 
-    reference_file = ref_mod.save(get_path(cfg, "outputs"), pack_path.name, references)
+    reference_file = ref_mod.save(get_path(cfg, "references"), pack_path.name, references)
 
     print("\n" + "=" * 60)
     print(f"references written to {reference_file}")
