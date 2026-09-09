@@ -257,9 +257,13 @@ def main(argv: list[str] | None = None) -> int:
         # the three -- and the third must survive rather than be deleted by the
         # run that could not produce it.
         print(f"  kept from an earlier run: {', '.join(carried)}")
-    absent = ref_mod.missing(references)
+    # Missing from the *file*, not from this run. A figure this run skipped but
+    # carried over is present and usable, and warning about it alongside "kept
+    # from an earlier run" reads as a contradiction -- which is how a Colab run
+    # that behaved perfectly came to look as though something had gone wrong.
+    absent = [name for name in ref_mod.missing(references) if name not in carried]
     if absent:
-        print(f"  not measured in this run: {', '.join(absent)}")
+        print(f"  still missing, never measured: {', '.join(absent)}")
 
     if failures:
         print("\nPROBLEMS:")
