@@ -13,33 +13,36 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > visibly matching hand. See `docs/phase2-first-generation.md` and
 > `outputs/probe_lines/lines_contrast.png`.
 >
-> ### The references moved, and two of them moved a long way
+> ### The references, measured on lines and on English only
 >
-> T15 is done and it did not need Colab -- `check_metrics.py` generates nothing,
-> it only runs Inception, the embedding and TrOCR over real images. Measured on
-> CPU, committed to `references/references_cvl_lines_64.json`:
+> T15 did not need Colab -- `check_metrics.py` generates nothing, it only runs
+> Inception, the embedding and TrOCR over real images. Measured on CPU and
+> committed to `references/references_cvl_lines_64.json`:
 >
-> | | on **lines** (now) | on words (phase 1) |
+> | | on **lines**, English only | on words (phase 1) |
 > |---|---|---|
-> | FID floor | **19.06** | 33.72 |
-> | writer top-1 | **83.7%** | 66.9% |
-> | writer top-5 | **97.8%** | 90.1% |
-> | CER on real lines | **13.73%** (300 lines, many writers) | 12.33% (40 lines, one writer, unfiltered) |
+> | FID floor | **19.15** | 33.72 |
+> | writer top-1 | **85.8%** | 66.9% |
+> | writer top-5 | **94.4%** | 90.1% |
+> | CER on real lines | **11.45%** (300 lines) | 12.33% (40 lines, one writer, unfiltered) |
 >
-> **The FID floor nearly halved.** A line holds a whole sentence, so lines vary
-> less from one another in Inception's feature space than isolated words do. Any
-> generated set is now measured against a floor that is far closer to zero: a
-> result of 60 would have read as 1.8x the floor against words and is in fact
-> 3.1x against lines. The word-level number would have flattered every result.
+> **The FID floor nearly halved against the word-level one.** A line holds a
+> whole sentence, so lines vary less from one another in Inception's feature
+> space than isolated words do. A generated set scoring 60 would have read as
+> 1.8x the floor against words and is in fact 3.1x against lines. The word-level
+> number would have flattered every result this project is about to produce.
 >
-> **Writer retrieval rose to 83.7%.** More handwriting per image means more
-> evidence of the hand. The bar for the generator is much higher than it looked.
+> **Writer retrieval is much higher than it looked.** More handwriting per image
+> means more evidence of the hand, so the bar the generator has to clear rose
+> from 66.9% to 85.8%.
 >
-> **CER went slightly up, not down.** The phase-1 40 lines came from a single
-> writer whom TrOCR happened to read well. Sampling across writers is fairer and
-> harder. Re-measured over 300 lines it moved only from 13.36% to 13.73%, so the
-> 40-line estimate was already representative -- worth knowing, because it means
-> a cheap CER check is trustworthy when a full one is not affordable.
+> **Excluding the German passage took 2.28 points off CER**, from 13.73% to
+> 11.45%. That difference is the size of the penalty we were imposing on TrOCR
+> for reading a language it was never trained on. 11.45% is its honest error rate
+> on English handwriting.
+>
+> The two retrieval figures come from different samples (126 writers against 116)
+> and are not directly comparable with the German-inclusive run. CER is.
 >
 > **CER cannot be measured on Colab.** It reads the *raw* CVL line images rather
 > than the pack, and the 5 GB of sources are deliberately not copied to the VM.
@@ -50,13 +53,19 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > **T16 — generate 300 lines and score them.** Everything it needs is written:
 >
-> 1. Upload `data/processed/upload/cvl_lines_64.lmdb` (148 MB) to
->    `MyDrive/nib/`. **Never** the copy in `data/processed/` -- LMDB reserves its
->    map size up front, so that one is 8 GB on the wire.
+> 1. Upload `data/processed/upload/cvl_lines_64.lmdb` (**127 MB, 9,142 records**)
+>    to `MyDrive/nib/`. **Never** the copy in `data/processed/` -- LMDB reserves
+>    its map size up front, so that one is 8 GB on the wire. The two packs this
+>    project has built share a filename and differ by 1,720 records, so check the
+>    size: 148 MB is the older one, which still contained the German passage.
 > 2. Open `notebooks/colab_eval.ipynb` and run it top to bottom.
 >
 > It also needs `MyDrive/nib/checkpoints/writer_embedder.pt`, which should
 > already be there from the T11 run.
+>
+> `evaluate_generator.py` refuses to start when the pack and the references
+> disagree on record count, so uploading the wrong one costs seconds rather than
+> an hour. Skip cell 5 -- the raw images it needs are not on the VM.
 >
 > Watch the truncation count in the output. It is the check on whether the new
 > token budget is right; if it is high, `TOKENS_PER_CHAR` in
@@ -75,7 +84,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > ink. Pairing the two charges the recogniser a deletion error for reading
 > correctly. Confirmed by counting ink blobs: gap lines carry 0.58 more per line
 > than complete ones, relative to their own word count. They are dropped and
-> counted -- 10,862 clean lines remain, every held-out writer keeps at least 16.
+> counted. 9,142 clean lines remain after the German passage comes out too.
 >
 > **The token budget was set for words and never revisited.** Emuru's VAE
 > compresses width by 8, so one token is 8px (`lengths / 8` in its
@@ -134,9 +143,9 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 | ID | Task | Status | Verified by |
 |----|------|--------|-------------|
-| T13 | CVL line reader, with counted drops | **done** | ruff clean · 306 passed, 5 skipped · 10,862 of 13,473 lines kept, total_seen matches the disk exactly |
-| T14 | Line pack -> `cvl_lines_64.lmdb` | **done** | 310 passed, 5 skipped · 10,862 lines, 309 writers, 148 MB compacted · `check_data.py` all green |
-| T15 | Re-measure FID / retrieval / CER on lines | **done** | CPU, 2026-08-31: FID floor 19.06 · writer 83.7% top-1, 97.8% top-5 · CER 13.73% over 300 lines · FID(real, same real) 0.0000 |
+| T13 | CVL line reader, with counted drops | **done** | ruff clean · 9,142 of 13,473 lines kept, total_seen matches the disk exactly |
+| T14 | Line pack -> `cvl_lines_64.lmdb` | **done** | 9,142 lines, 309 writers, 127 MB compacted · `check_data.py` all green · rebuilt 2026-09-02 without the German passage |
+| T15 | Re-measure FID / retrieval / CER on lines | **done** | CPU, 2026-09-09: FID floor 19.15 · writer 85.8% top-1, 94.4% top-5 · CER 11.45% over 300 lines · FID(real, same real) 0.0000 |
 | T16 | Per-request token budget, then evaluate the generator | code done, **run pending** | budget and truncation counting tested; the Colab run is `notebooks/colab_eval.ipynb` |
 
 ## Waiting on Amri
@@ -169,6 +178,29 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-09 — the German passage comes out, and the references with it.** A sample
+  image from the pipeline check read `'Dann bist du deines Dienstes frey'`. The charset
+  filter works on *characters*, and roughly three quarters of Goethe's Faust is pure
+  ASCII, so 584 German lines had walked straight through it. Identified by the
+  offending characters rather than by assumption, which mattered: text 3 loses lines to
+  the same filter and is **English** — an article about an Austrian computer, the
+  Mailuefterl, where only the lines naming it carry an umlaut. Excluding it too would
+  have thrown away 2,051 sound English lines. Only passage 6 goes.
+
+  The pack fell from 10,862 lines to 9,142, and **CER fell from 13.73% to 11.45%** —
+  that 2.28 points is the size of the penalty we had been imposing on TrOCR for reading
+  a language it was never trained on.
+
+  Rebuilding exposed a hole in the references module itself: it identifies a pack by
+  *filename*, and a rebuilt pack keeps its name, so numbers measured on 10,862 lines sat
+  beside a pack of 9,142 looking entirely current. The file now records `pack_records`,
+  and `evaluate_generator.py` refuses to start on a mismatch — before the 2.9 GB
+  checkpoint download, not after an hour of GPU.
+
+  Also fixed, found while checking the thinner pack: the retrieval gallery silently
+  skipped writers with too few images **while keeping their queries**, which cannot
+  match and quietly depressed the score. Those queries are now withheld and counted.
 
 - **2026-08-31 — T15 done, and T16's code with it.** The line-level references are
   measured and committed: FID floor 19.06, writer retrieval 83.7% top-1 / 97.8% top-5,

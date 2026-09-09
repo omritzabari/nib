@@ -39,9 +39,9 @@ FULL_ROOT = CVL_ROOT / "cvl-database-1-1"
 # round. A change in any of these numbers means the data or the filtering moved,
 # and either is worth stopping for.
 EXPECTED_LINE_IMAGES = 13473
-EXPECTED_KEPT = 10862
+EXPECTED_KEPT = 9142
 EXPECTED_WRITERS = 309  # 310 minus writer 0431, whom CVL's own readme excludes
-EXPECTED_HELD_OUT_LINES = 3264
+EXPECTED_HELD_OUT_LINES = 2733
 
 
 def _line_images_on_disk() -> int:
@@ -309,3 +309,52 @@ def test_every_held_out_writer_has_enough_lines_to_evaluate():
 
     assert all(len(v) >= 12 for v in held_out.values())
     assert sum(len(v) for v in held_out.values()) == EXPECTED_HELD_OUT_LINES
+
+
+# --------------------------------------------------------------------------
+# passages in another language
+# --------------------------------------------------------------------------
+
+
+def test_the_german_passage_is_excluded_and_counted_apart_from_the_drops(tmp_path):
+    """A passage in another language is a scope decision, not a defect. Mixing it
+    into the drop counts would make a deliberate choice look like data loss."""
+    from nib.data.cvl_lines import GERMAN_TEXTS
+
+    root = make_tree(tmp_path, ["0052-6-0"], ["0052-6-0-0-Verweile", "0052-6-0-1-doch"])
+
+    lines, report = scan_lines(root)
+
+    assert lines == []
+    assert report.excluded_texts == GERMAN_TEXTS & {"6"}
+    assert report.excluded_text_lines == 1
+    assert sum(report.dropped.values()) == 0
+
+
+def test_the_charset_filter_alone_would_not_have_caught_it(tmp_path):
+    """This is the whole reason the passage is excluded by id.
+
+    The filter works on characters, and roughly three quarters of Faust's lines
+    contain no umlaut at all -- so 584 German lines reached the first line pack
+    looking perfectly English to it.
+    """
+    root = make_tree(tmp_path, ["0052-6-0"], ["0052-6-0-0-Dann", "0052-6-0-1-magst"])
+
+    lines, _ = scan_lines(root, exclude_texts=frozenset())
+
+    assert len(lines) == 1, "pure-ASCII German passes the charset filter"
+    assert lines[0].text == "Dann magst"
+
+
+def test_the_english_passage_that_merely_names_a_german_word_is_kept(tmp_path):
+    """Text 3 is English prose about an Austrian computer, the Mailuefterl. Only
+    the lines naming it carry an umlaut. Excluding the passage would have thrown
+    away 2,051 sound English lines."""
+    root = make_tree(
+        tmp_path, ["0052-3-0"], ["0052-3-0-0-on", "0052-3-0-1-the", "0052-3-0-2-mainland"]
+    )
+
+    lines, _ = scan_lines(root)
+
+    assert len(lines) == 1
+    assert lines[0].text == "on the mainland"

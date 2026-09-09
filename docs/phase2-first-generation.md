@@ -46,8 +46,40 @@ is hours here and minutes on a T4. Evaluation runs belong on Colab.
 instead of stopping. This is the known Emuru failure that its successor, Eruku,
 was built to fix. Worth watching at line level.
 
+## Correction, 2026-09-01
+
+**The runaway was ours.** Emuru's VAE compresses width by a factor of eight, so
+one generated token is eight pixels -- `lengths = (lengths / 8).ceil()` in its own
+`_generate`. This wrapper passed a flat `max_new_tokens=96`, which is 768 pixels.
+The two outputs recorded above as runaway were 756 pixels wide: 94 and 95 tokens,
+stopping because they had run out of canvas.
+
+96 was chosen when the working unit was a word, where it was generous by a factor
+of five. At line level it could not finish an *average* line, which is 886 pixels.
+The model's own default is 256.
+
+The lesson is not about Emuru. A number that was right for one unit was carried
+into another without being re-derived, and a plausible story from the literature
+was available to explain the symptom -- so nobody did the arithmetic. The budget
+now scales with the target's length, and every output that still reaches its cap
+is counted and reported rather than absorbed.
+
+## What the first Colab run then found, 2026-09-01
+
+**One request in seventy-two produces nothing at all.** Emuru returns
+`imgs[style_width : stop * 8]`, and it looks for the stop by scanning the whole
+canvas -- style prefix included -- for ten consecutive latent slices resembling
+its padding token. The last slices of a real style line already sit close to that
+token: 0.86 to 0.97 cosine similarity against a threshold of 0.485. When the
+model opens by emitting padding, the window straddles the boundary, the stop
+lands at or before the style image's own width, and the slice is empty.
+
+It is intermittent because `_img_encode` calls `latent_dist.sample()`: the style
+latents are drawn afresh each time, so this is a bad draw rather than a bad
+request. Three re-draws, each counted; a request that fails all four is excluded
+together with its ground truth, so the pairing of generated to real never shifts.
+
 ## Next
 
-A line-level pack, then `scripts/evaluate_generator.py` on Colab for the first
-real numbers against the phase-1 references: FID 33.72, CER 12.33%, retrieval
-66.9%.
+`scripts/evaluate_generator.py` on Colab, against the line-level references in
+`references/`.

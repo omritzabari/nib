@@ -306,7 +306,7 @@ def test_the_real_pack_covers_the_committed_split():
 # --------------------------------------------------------------------------
 
 LINE_PACK = find_repo_root() / "data" / "processed" / "cvl_lines_64.lmdb"
-EXPECTED_LINES = 10862
+EXPECTED_LINES = 9142
 
 needs_line_pack = pytest.mark.skipif(
     not is_complete(LINE_PACK),

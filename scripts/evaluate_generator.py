@@ -59,6 +59,17 @@ from nib.models.generator import (
     to_uint8,
 )
 
+GALLERY_DEPTH = 12
+"""Real images per writer in the retrieval gallery, where the writer has that
+many to spare. More is a better description of a hand and also more distractors,
+so the figure only compares across runs that used the same one."""
+
+GALLERY_MINIMUM = 6
+"""Below this a writer gets no gallery entry at all, and their queries are
+withheld from the score rather than counted as misses. A query whose writer is
+absent from the gallery cannot match, so scoring it would measure how the samples
+were drawn rather than how well the model copies a hand."""
+
 PHASE1_WORD_REFERENCE = {
     "fid_floor": 33.72,
     "cer_real": 0.1233,
@@ -75,11 +86,16 @@ produces something, loudly labelled.
 """
 
 
-def load_references(cfg, pack_name: str) -> tuple[dict, str]:
+def load_references(cfg, pack_name: str, records: int) -> tuple[dict, str]:
     """The baseline for this pack, and where it came from.
 
-    The source string is printed with every result. A number whose provenance is
-    not stated beside it is one nobody can check.
+    The source string is printed with every result, and with every result in
+    results.json. A number whose provenance is not stated beside it is one nobody
+    can check.
+
+    ``records`` is what makes the check real. A pack rebuilt under the same name
+    -- which is what excluding the German passage did -- leaves a reference file
+    that looks current and describes different data.
     """
     from nib.engine.metrics import references as ref_mod
 
@@ -90,8 +106,19 @@ def load_references(cfg, pack_name: str) -> tuple[dict, str]:
             "WORD-level numbers, which are not a valid baseline for lines. Run "
             f"scripts/check_metrics.py --pack .../{pack_name} first."
         )
-    absent = ref_mod.missing(measured)
+
     note = f"measured on {measured.get('pack', pack_name)}"
+    if ref_mod.stale(measured, records):
+        note = (
+            f"STALE: measured on a {measured['pack_records']}-record {pack_name}, "
+            f"this pack holds {records}. The pack was rebuilt and the references "
+            "were not. Re-run scripts/check_metrics.py before trusting any "
+            "comparison below."
+        )
+    elif "pack_records" not in measured:
+        note += " (record count not recorded, so a rebuild cannot be detected)"
+
+    absent = ref_mod.missing(measured)
     if absent:
         note += f" -- incomplete, missing {', '.join(absent)}"
     return {**PHASE1_WORD_REFERENCE, **measured}, note
@@ -179,6 +206,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default=None)
     parser.add_argument("--save-images", type=int, default=32)
+    parser.add_argument(
+        "--allow-stale-references",
+        action="store_true",
+        help="run even when the baseline was measured on a different version of "
+        "this pack. The numbers will not mean what they appear to.",
+    )
     args, overrides = parser.parse_known_args(argv)
 
     repo = Path(__file__).resolve().parents[1]
@@ -191,7 +224,24 @@ def main(argv: list[str] | None = None) -> int:
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
 
     pack = PackReader(get_path(cfg, "processed") / f"cvl_{args.unit}_{height}.lmdb")
-    print(f"pack               {pack.path.name}  ({pack.header.source})")
+    print(f"pack               {pack.path.name}  ({pack.header.source}, {len(pack)} records)")
+
+    # Checked here, before a 2.9 GB checkpoint download and an hour of GPU, and
+    # not at the end beside the results. The two packs this project has built
+    # carry the same filename and differ by 1,720 records, so nothing visible
+    # distinguishes a stale baseline from a current one -- and a run scored
+    # against the wrong one produces numbers that look entirely reasonable.
+    reference, provenance = load_references(cfg, pack.path.name, len(pack))
+    print(f"baseline           {provenance}")
+    if provenance.startswith("STALE") and not args.allow_stale_references:
+        pack.close()
+        print(
+            "\nRefusing to run. Re-measure with:\n"
+            f"  python scripts/check_metrics.py --pack {pack.path} --samples 300\n"
+            "or pass --allow-stale-references if you meant it."
+        )
+        return 1
+
     split = WriterSplit.load(repo / "configs" / "splits" / "cvl-writer-disjoint.json")
     held_out = [w for w in split.writers["test"] if w in pack.writers()]
     print(f"held-out writers   {len(held_out)}  (never trained on by anything here)")
@@ -276,7 +326,9 @@ def main(argv: list[str] | None = None) -> int:
         cv2.imwrite(str(out_dir / "samples" / f"{i:03d}_{truths[i].text}.png"), pair)
     print(f"samples            {out_dir / 'samples'}  (real on top, generated below)")
 
-    results = _measure(cfg, generated, truths, held_out, pack, device, out_dir)
+    results = _measure(
+        cfg, generated, truths, held_out, pack, device, out_dir, reference, provenance
+    )
     results.update(results_run)
     pack.close()
 
@@ -285,14 +337,13 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _measure(cfg, generated, truths, held_out, pack, device, out_dir):
+def _measure(cfg, generated, truths, held_out, pack, device, out_dir, reference, provenance):
     real = [t.image for t in truths]
     results: dict = {"count": len(generated)}
 
-    reference, provenance = load_references(cfg, pack.path.name)
+    # Loaded and checked in main(), before the checkpoint download, so a stale
+    # baseline costs seconds rather than an hour. Carried in rather than re-read.
     results["reference_source"] = provenance
-    print("\n" + "=" * 62)
-    print(f"baseline   {provenance}")
 
     print("\n" + "=" * 62)
     print("FID -- does it look like handwriting at all")
@@ -314,17 +365,39 @@ def _measure(cfg, generated, truths, held_out, pack, device, out_dir):
     targets = {truth.key for truth in truths}
 
     gallery, gids = [], []
+    thin: list[str] = []
     by_writer = pack.writers()
     rng = random.Random(int(cfg.seed))
     for writer in held_out:
         keys = sorted(key for key in by_writer.get(writer, []) if key not in targets)
-        if len(keys) >= 12:
-            for key in rng.sample(keys, 12):
-                gallery.append(pack[key].image)
-                gids.append(writer)
+        if len(keys) < GALLERY_MINIMUM:
+            thin.append(writer)
+            continue
+        for key in rng.sample(keys, min(GALLERY_DEPTH, len(keys))):
+            gallery.append(pack[key].image)
+            gids.append(writer)
+
+    # A query whose writer is not in the gallery cannot possibly match, so
+    # leaving it in the score would measure our sampling rather than the model.
+    # Withheld and counted, never dropped in silence.
+    galleried = set(gids)
+    pairs = [
+        (image, truth.writer_id)
+        for image, truth in zip(generated, truths, strict=True)
+        if truth.writer_id in galleried
+    ]
+    withheld = len(generated) - len(pairs)
+    results["retrieval_scored"] = len(pairs)
+
+    print(f"  gallery    {len(gallery)} images over {len(galleried)} writers")
+    if thin:
+        print(
+            f"  withheld   {withheld} queries from {len(thin)} writers with fewer "
+            f"than {GALLERY_MINIMUM} non-target samples, who cannot be in the gallery"
+        )
 
     retrieval = WriterRetrieval(embedder).fit(gallery, gids)
-    scored = retrieval.evaluate(generated, [t.writer_id for t in truths])
+    scored = retrieval.evaluate([image for image, _ in pairs], [w for _, w in pairs])
     results["retrieval_top1"] = scored.top1
     results["retrieval_top5"] = scored.topk
     print(f"  generated  {scored.top1:7.1%} top-1   {scored.topk:.1%} top-5")

@@ -409,3 +409,26 @@ def test_update_says_nothing_was_carried_when_the_file_is_new(tmp_path):
 
     _, carried = ref.update(tmp_path, "fresh.lmdb", {"fid_floor": 19.0})
     assert carried == []
+
+
+def test_a_rebuilt_pack_makes_its_references_stale(tmp_path):
+    """The hole that actually opened. Excluding the German passage rebuilt the
+    pack under the same filename, so the reference file kept looking current
+    while describing 10,862 lines that no longer existed."""
+    from nib.engine.metrics import references as ref
+
+    ref.save(tmp_path, "cvl_lines_64.lmdb", {"fid_floor": 19.0, "pack_records": 10862})
+    values = ref.load(tmp_path, "cvl_lines_64.lmdb")
+
+    assert ref.stale(values, 9142)
+    assert not ref.stale(values, 10862)
+
+
+def test_references_without_a_record_count_are_not_called_stale(tmp_path):
+    """A file written before the field existed cannot be judged either way, and
+    guessing is worse than reporting that it is unknown."""
+    from nib.engine.metrics import references as ref
+
+    ref.save(tmp_path, "p.lmdb", {"fid_floor": 19.0})
+
+    assert not ref.stale(ref.load(tmp_path, "p.lmdb"), 9142)

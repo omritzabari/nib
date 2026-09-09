@@ -49,6 +49,23 @@ from nib.data.cvl_words import EXCLUDED_WRITERS, parse_word_filename
 # has no transcription in its name, which is the whole reason this module exists.
 _LINE_NAME = re.compile(r"^(?P<writer>\d{4})-(?P<text>\d+)-(?P<line>\d+)$")
 
+GERMAN_TEXTS = frozenset({"6"})
+"""CVL passages that are not in English, and are excluded by scope.
+
+Identified by the characters that push their lines out of the English charset,
+not by assumption. Text 6 is Goethe's *Faust*: ``'Verweile doch du bist so
+schoen'``, offending characters ``oe`` and ``ue``. Text 3 loses lines to the same
+filter and is **English** -- an article about an Austrian computer called the
+Mailuefterl, where only the lines naming it carry an umlaut. Dropping text 3 too
+would have thrown away 2,051 sound English lines.
+
+This matters twice over. Asking Emuru, trained on English, to write German
+penalises it for something nobody asked of it; and asking TrOCR, trained on
+English, to read German inflates the error rate on both sides of the comparison.
+About three quarters of text 6's lines contain no umlaut at all, so the charset
+filter alone lets them through -- 584 German lines reached the first line pack.
+"""
+
 DROP_UNPARSED_NAME = "filename did not parse"
 DROP_NO_WORDS = "no word files for the line"
 DROP_EMPTY_TEXT = "empty transcription"
@@ -91,12 +108,16 @@ class LineReport:
     writers: set[str] = field(default_factory=set)
     excluded_writers: set[str] = field(default_factory=set)
     excluded_lines: int = 0
+    excluded_texts: set[str] = field(default_factory=set)
+    excluded_text_lines: int = 0
 
     @property
     def total_seen(self) -> int:
         """Every line image looked at, deliberate exclusions included, so the
         total matches the file count on disk."""
-        return self.kept + sum(self.dropped.values()) + self.excluded_lines
+        return (
+            self.kept + sum(self.dropped.values()) + self.excluded_lines + self.excluded_text_lines
+        )
 
     def summary(self) -> str:
         lines = [
@@ -115,6 +136,11 @@ class LineReport:
             lines.append(
                 f"  excluded: {self.excluded_lines} lines from writers "
                 f"{sorted(self.excluded_writers)} (see the CVL readme)"
+            )
+        if self.excluded_texts:
+            lines.append(
+                f"  excluded: {self.excluded_text_lines} lines from passage(s) "
+                f"{sorted(self.excluded_texts)} -- not English, and this project is"
             )
         return "\n".join(lines)
 
@@ -154,6 +180,7 @@ def scan_lines(
     root: Path | str,
     charset_name: str = "english",
     exclude_writers: frozenset[str] = EXCLUDED_WRITERS,
+    exclude_texts: frozenset[str] = GERMAN_TEXTS,
     keep_out_of_charset: bool = False,
     keep_incomplete: bool = False,
 ) -> tuple[list[CvlLine], LineReport]:
@@ -165,7 +192,11 @@ def scan_lines(
             dropped. The German passages are what this mostly removes.
         exclude_writers: writer ids to skip entirely. Defaults to the one the CVL
             readme says was excluded from the published evaluation.
-        keep_out_of_charset: keep German and other unsupported lines anyway.
+        exclude_texts: passage ids to skip entirely. Defaults to
+            :data:`GERMAN_TEXTS`. The charset filter is not enough on its own:
+            it works on characters, and most German lines are pure ASCII.
+        keep_out_of_charset: keep lines whose characters fall outside the
+            alphabet -- the umlauts, mostly.
         keep_incomplete: keep lines whose word indices have gaps, flagged with
             ``complete=False``. Their images hold ink their text does not
             describe, so they must never reach CER.
@@ -199,6 +230,13 @@ def scan_lines(
         if writer_id in exclude_writers:
             report.excluded_writers.add(writer_id)
             report.excluded_lines += 1
+            continue
+
+        # Counted apart from the drops, and checked before them: a passage in
+        # another language is a scope decision, not a defect in the data.
+        if text_id in exclude_texts:
+            report.excluded_texts.add(text_id)
+            report.excluded_text_lines += 1
             continue
 
         words = words_by_line.get((writer_id, text_id, line_index), [])

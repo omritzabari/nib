@@ -143,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
 
         first = [pack[i] for i in indices[: args.samples]]
         second = [pack[i] for i in indices[args.samples : need]]
+        pack_records = len(pack)
 
     failures: list[str] = []
 
@@ -151,7 +152,15 @@ def main(argv: list[str] | None = None) -> int:
     # -- a generated *line* compared to a floor measured on *words* is comparing
     # different things. Writing them to a file rather than leaving them in the
     # console means the next run reads them instead of someone retyping them.
-    references: dict = {"pack": pack_path.name, "samples": args.samples}
+    # pack_records, not just the name. A rebuilt pack keeps its filename, so the
+    # name alone cannot tell a reader that these numbers belong to a different
+    # version of the data -- which is how a set measured on 10,862 lines came to
+    # sit beside a pack of 9,142 looking current.
+    references: dict = {
+        "pack": pack_path.name,
+        "pack_records": pack_records,
+        "samples": args.samples,
+    }
 
     # ---- FID ---------------------------------------------------------------
     print("\n" + "=" * 60)

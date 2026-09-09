@@ -92,3 +92,20 @@ def load(outputs: Path | str, pack_name: str) -> dict | None:
 def missing(values: dict) -> list[str]:
     """Which of the three a reference file does not carry."""
     return [name for name in REQUIRED if name not in values]
+
+
+def stale(values: dict, records: int) -> bool:
+    """Whether these numbers were measured on a different version of the pack.
+
+    Checked on the record count, not the filename. The filename is what the file
+    is *named after*, and a rebuilt pack keeps its name -- which is precisely how
+    a set of numbers measured on 10,862 lines came to sit beside a pack of 9,142,
+    looking entirely current. Excluding the German passage changed the pack and
+    changed nothing a reader could see.
+
+    Returns False when the count was never recorded, because a file written
+    before this field existed cannot be judged either way, and guessing would be
+    worse than the honest "unknown" the caller can then report.
+    """
+    measured = values.get("pack_records")
+    return measured is not None and int(measured) != int(records)
