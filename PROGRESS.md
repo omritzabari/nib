@@ -49,9 +49,42 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > That is why `references.update` merges rather than replaces: a machine that
 > measures two of the three must not delete the third.
 >
+> ### T16 ran. The project has numbers.
+>
+> 2026-09-09, T4, 53 minutes, 300 lines in the hands of 94 unseen writers.
+> Full write-up in `docs/phase2-first-evaluation.md`.
+>
+> | | generated | real | no style at all |
+> |---|---|---|---|
+> | FID | **63.92** | 19.15 | 254.29 |
+> | writer top-1 | **20.5%** | 85.8% | 1.7% |
+> | writer top-5 | **43.6%** | 94.4% | — |
+> | CER | **33.14%** | 12.06% | — |
+>
+> **It produces handwriting** — 81% of the way from printed text to real, on the
+> FID scale. **The identity carries only partly** — retrieval is 18x chance, so
+> the style input is genuinely used, but only 23% of the way from chance to what
+> real handwriting scores. Emuru writes convincing handwriting that is only
+> partly the right person's.
+>
+> The run completed where the previous one died: at request 41 the model declined
+> to write, three re-draws failed, and it was excluded with its ground truth
+> rather than taking the run down. Four others were saved by a retry.
+>
 > ### The immediate next task
 >
-> **T16 — generate 300 lines and score them.** Everything it needs is written:
+> **Re-run T16 with the corrected token budget.** 10.7% of the output was
+> truncated, and a line cut short loses its ending to deletion errors, so part of
+> the CER gap is ours rather than the model's. `TOKENS_PER_CHAR` moved from 4.0
+> to 5.5 (above the 99th percentile of 5.04, measured over 1,524 lines) and
+> `MAX_TOKENS` from 256 to 384, since at 5.5 a cap of 256 would clamp every line
+> past 47 characters. The share of real lines that do not fit their budget falls
+> from 5.9% to 0.7%.
+>
+> Nothing else changes: same pack, same references, same notebook. Re-run the
+> install cell to pull the fix, skip cell 5, run cell 6.
+>
+> ### Setting a run up from scratch, for reference
 >
 > 1. Upload `data/processed/upload/cvl_lines_64.lmdb` (**127 MB, 9,142 records**)
 >    to `MyDrive/nib/`. **Never** the copy in `data/processed/` -- LMDB reserves
@@ -146,7 +179,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T13 | CVL line reader, with counted drops | **done** | ruff clean · 9,142 of 13,473 lines kept, total_seen matches the disk exactly |
 | T14 | Line pack -> `cvl_lines_64.lmdb` | **done** | 9,142 lines, 309 writers, 127 MB compacted · `check_data.py` all green · rebuilt 2026-09-02 without the German passage |
 | T15 | Re-measure FID / retrieval / CER on lines | **done** | CPU, 2026-09-09: FID floor 19.15 · writer 85.8% top-1, 94.4% top-5 · CER 11.45% over 300 lines · FID(real, same real) 0.0000 |
-| T16 | Per-request token budget, then evaluate the generator | code done, **run pending** | budget and truncation counting tested; the Colab run is `notebooks/colab_eval.ipynb` |
+| T16 | Per-request token budget, then evaluate the generator | **ran** | T4, 2026-09-09, 53 min: FID 63.92 · writer 20.5% top-1 · CER gap +21.1% · 2 excluded of 300 · **10.7% truncated, budget corrected, re-run pending** |
 
 ## Waiting on Amri
 
@@ -178,6 +211,29 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-09 — T16 ran, and the project has its first measured result.** 300 lines
+  in the hands of 94 unseen writers, T4, 53 minutes. FID 63.92 against a floor of
+  19.15 and 254.29 for printed text; writer retrieval 20.5% top-1 against 85.8% for
+  real and 1.7% for a generator with no style at all; CER gap +21.1 points. Read
+  together: it produces handwriting (81% of the way from print to real) that is only
+  partly the right person's (23% of the way from chance to real). `docs/phase2-first-evaluation.md`
+  carries the full write-up.
+
+  The run completed where the previous attempt died at 72 of 300. At request 41 the
+  model declined to write, three re-draws failed, and it was excluded together with
+  its ground truth instead of ending the run; four other requests were recovered by a
+  retry. Every fix from the past fortnight was exercised by a real run rather than by
+  a test.
+
+  10.7% of the output was truncated, which is our bug and not the model's: the budget
+  of 4.0 tokens per character covers about 92% of the data. Raised to 5.5, above the
+  measured 99th percentile of 5.04, with the cap at 384 so it does not clamp ordinary
+  text — at 5.5 a cap of 256 binds past 47 characters, and more than half the pack is
+  longer. Real lines that do not fit their budget: 5.9% before, 0.7% after. The test
+  for this is now derived from the pack rather than asserted on synthetic strings,
+  because length and pixels-per-character are anticorrelated in real handwriting and
+  no made-up string exposes that.
 
 - **2026-09-09 — the German passage comes out, and the references with it.** A sample
   image from the pipeline check read `'Dann bist du deines Dienstes frey'`. The charset

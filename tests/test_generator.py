@@ -189,21 +189,52 @@ def test_the_budget_grows_with_the_text():
 def test_an_average_real_line_gets_room_to_finish():
     """The regression this whole change exists for.
 
-    A real CVL line at 64px averages 40 characters and 886 pixels. The old flat
-    budget of 96 tokens was 768 pixels, so the model ran out of canvas before the
-    sentence ended and the truncation was recorded as the model failing to stop.
+    A real line of the English pack at 64px averages 42 characters and 910
+    pixels. The old flat budget of 96 tokens was 768 pixels, so the model ran out
+    of canvas before the sentence ended and the truncation was recorded as the
+    model failing to stop.
     """
     from nib.models.emuru import PIXELS_PER_TOKEN, token_budget
 
-    assert token_budget("x" * 40) * PIXELS_PER_TOKEN > 886
+    assert token_budget("x" * 42) * PIXELS_PER_TOKEN > 910
 
 
 def test_the_longest_real_line_still_fits_under_the_cap():
-    """84 characters and 1885 pixels is the widest line in the pack."""
+    """87 characters and 1762 pixels is the widest line in the pack."""
     from nib.models.emuru import MAX_TOKENS, PIXELS_PER_TOKEN, token_budget
 
-    assert token_budget("x" * 84) * PIXELS_PER_TOKEN >= 1885
-    assert token_budget("x" * 84) <= MAX_TOKENS
+    assert token_budget("x" * 87) * PIXELS_PER_TOKEN >= 1762
+    assert token_budget("x" * 87) <= MAX_TOKENS
+
+
+def test_the_budget_fits_almost_every_real_line():
+    """Checked against the data the budget was derived from, not asserted.
+
+    TOKENS_PER_CHAR is set from the 99th percentile of tokens per character, so
+    at least 99% of real lines should fit the budget their length earns. That is
+    the property the setting is supposed to buy, and it is the one that decides
+    whether a line can finish -- a question no synthetic string can answer,
+    because length and pixels per character are anticorrelated in real
+    handwriting: short lines are written large.
+
+    The first full evaluation truncated 10.7% of its output at 4.0 tokens per
+    character, which is roughly what this test would have predicted.
+    """
+    from nib.config import find_repo_root
+    from nib.data.pack import PackReader, is_complete
+    from nib.models.emuru import PIXELS_PER_TOKEN, token_budget
+
+    pack_path = find_repo_root() / "data" / "processed" / "cvl_lines_64.lmdb"
+    if not is_complete(pack_path):
+        pytest.skip(f"no line pack at {pack_path}")
+
+    with PackReader(pack_path) as pack:
+        step = max(1, len(pack) // 1000)
+        lines = [pack[i] for i in range(0, len(pack), step)]
+
+    fits = [token_budget(line.text) * PIXELS_PER_TOKEN >= line.image.shape[1] for line in lines]
+    share = sum(fits) / len(fits)
+    assert share >= 0.99, f"only {share:.1%} of real lines fit their budget"
 
 
 def test_the_budget_is_clamped_at_both_ends():

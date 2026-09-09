@@ -60,21 +60,31 @@ PIXELS_PER_TOKEN = 8
 ``lengths = (lengths / 8).ceil()``: one generated token is eight pixels of width.
 This is the conversion the whole token budget rests on."""
 
-TOKENS_PER_CHAR = 4.0
+TOKENS_PER_CHAR = 5.5
 """How many tokens a character of target text is allowed.
 
-Measured on 300 real CVL lines at 64px: 23.2 pixels per character on average,
-37.8 at the 95th percentile -- that is 2.9 and 4.7 tokens. Four is chosen to sit
-above the ordinary case with room to spare while still costing less than a flat
-maximum, because every unused token is an autoregressive step nobody needed."""
+Measured over 1,524 real lines of the English line pack: 2.79 tokens per
+character on average, 3.77 at the 90th percentile, 4.16 at the 95th and 5.04 at
+the 99th. 5.5 sits above the 99th.
+
+It was 4.0, which covers about 92% of the data -- and the first full evaluation
+truncated 10.7% of 298 lines, which is what an 8% shortfall looks like once the
+model's own tendency to write slightly wider than the reference is added to it.
+Every unused token is an autoregressive step nobody needed, so the budget is
+still derived rather than flat; it is simply derived from the 99th percentile
+instead of the 92nd."""
 
 MIN_TOKENS = 32
 """256px, so a very short target still has room to finish."""
 
-MAX_TOKENS = 256
-"""The model's own default, and 2048px -- wider than the widest real CVL line at
-this height, which is 1885px. A cap this high is a guard against a runaway, not a
-length limit."""
+MAX_TOKENS = 384
+"""3072px. Two jobs, and the second is why it moved from 256.
+
+It guards against a runaway: the widest real line in the pack is 1762px, so
+anything approaching 3072 has stopped being a line. And it must not become the
+binding constraint for ordinary text -- at 5.5 tokens per character a cap of 256
+would clamp every line past 47 characters, which is more than half of them, and
+the budget would quietly stop scaling with length just where length matters."""
 
 
 def token_budget(
