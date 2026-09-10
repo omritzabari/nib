@@ -160,6 +160,34 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > enrolment and does not work on a page that already exists -- an old letter, a
 > diary, a grandparent's hand. Both may be wanted; they are not the same feature.
 >
+> ### Where the project actually stands, 2026-09-10
+>
+> | | Emuru | Eruku cfg 1.25 | Eruku cfg 1.0 | real |
+> |---|---|---|---|---|
+> | FID | **69.5** | 80.7 [73.2, 88.3] | -- | 19.15 |
+> | writer top-1 | **22.1%** | 5.3% [3.0, 8.0] | 10.0% [3.3, 18.3] | 85.8% |
+> | CER gap | +20.4 | **+13.0** | -- | -- |
+> | empty outputs | 6 | **0** | **0** | -- |
+>
+> Eruku writes the text better and the hand worse. Its learned end-of-generation
+> token does fix one failure completely -- Emuru needed four retries and lost two
+> requests outright, Eruku lost none -- and does nothing for truncation, which
+> sits at 8% for both.
+>
+> `cfg_scale` is the dial: dropping it from 1.25 to 1.0 doubled retrieval. The
+> intervals at 60 samples overlap, so this is a direction and not yet a finding;
+> cfg 2.0 completes the line.
+>
+> **The number that has not moved is the project's whole claim.** Writer
+> retrieval is 22.1% at best against a ceiling of 85.8% -- a quarter of the way
+> from chance to what real handwriting scores. Everything else is now measured
+> carefully; this is not solved.
+>
+> The largest untried lever on it: **more than one line of style**. The model is
+> given a single line and asked to learn a hand. Emuru's interface takes one
+> image, but a wider image holding several concatenated lines is still one image,
+> and Eruku takes any width.
+>
 > ### Known and open
 >
 > - Emuru needs the style sample's *transcription*. A user photographing a page
@@ -200,7 +228,10 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T13 | CVL line reader, with counted drops | **done** | ruff clean · 9,142 of 13,473 lines kept, total_seen matches the disk exactly |
 | T14 | Line pack -> `cvl_lines_64.lmdb` | **done** | 9,142 lines, 309 writers, 127 MB compacted · `check_data.py` all green · rebuilt 2026-09-02 without the German passage |
 | T15 | Re-measure FID / retrieval / CER on lines | **done** | CPU, 2026-09-09: FID floor 19.15 · writer 85.8% top-1, 94.4% top-5 · CER 11.45% over 300 lines · FID(real, same real) 0.0000 |
-| T16 | Per-request token budget, then evaluate the generator | **ran** | T4, 2026-09-09, 53 min: FID 63.92 · writer 20.5% top-1 · CER gap +21.1% · 2 excluded of 300 · **10.7% truncated, budget corrected, re-run pending** |
+| T16 | Per-request token budget, then evaluate the generator | **done** | T4, 2026-09-09, two runs of 300. Best: FID 69.46 · writer 22.1% top-1 · CER gap +20.4% · 8.7% truncated |
+| T17 | Confidence intervals, full-sample CER, saved analysis | **done** | 364 tests · every figure now carries a 95% spread · `analysis.npz` reconstructs a run's metrics exactly |
+| T18 | Eruku adapter, and Eruku measured | **done** | T4, 2026-09-10, 128 min over 300: FID 80.74 [73.2, 88.3] · writer 5.3% [3.0, 8.0] · CER gap +13.0% · **zero empty outputs** |
+| T19 | Sweep Eruku's guidance scale | **half** | cfg 1.0 over 60: writer 10.0% [3.3, 18.3] against 5.3% at 1.25. cfg 2.0 pending |
 
 ## Waiting on Amri
 
