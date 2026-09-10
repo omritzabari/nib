@@ -14,8 +14,9 @@ a page has transcribed nothing, so the product would have to read the sample
 first -- which is what TrOCR is already here for, at the accuracy TrOCR happens to
 have. Recorded rather than hidden, because it constrains the architecture.
 
-**It takes one style image, not several.** The interface accepts a list because
-other models use more; here only the first is used, and the rest are ignored.
+**It takes one style image, not several** -- so several are joined into one wide
+image before it sees them. See :mod:`nib.models.style`. Nothing in the model
+constrains the width, and four lines of a hand describe it better than one.
 
 **It was trained on synthetic fonts and never on CVL.** Every writer we evaluate
 on is unseen by construction, which is exactly the claim being tested and is the
@@ -50,6 +51,7 @@ import cv2
 import numpy as np
 
 from nib.models.generator import EmptyGeneration, GenerationRequest, GeneratorError
+from nib.models.style import join_style
 
 MODEL_ID = "blowing-up-groundhogs/emuru"
 NATIVE_HEIGHT = 64
@@ -288,11 +290,16 @@ class EmuruGenerator:
         """
         budget = self.budget_for(request.text)
 
+        # Every style sample the request carries, laid side by side. The model
+        # takes one image; one wide image holding four lines is still one image,
+        # and four lines of a hand describe it better than one.
+        style_image, style_text = join_style(request.style_images, request.style_texts)
+
         for attempt in range(1 + self.empty_retries):
             image = self.model.generate(
-                style_text=request.style_texts[0],
+                style_text=style_text,
                 gen_text=request.text,
-                style_img=self._as_tensor(request.style_images[0]),
+                style_img=self._as_tensor(style_image),
                 max_new_tokens=budget,
             )
             array = np.asarray(image.convert("L"), dtype=np.uint8)

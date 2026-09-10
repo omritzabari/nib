@@ -57,6 +57,7 @@ from nib.models.emuru import (
     token_budget,
 )
 from nib.models.generator import EmptyGeneration, GenerationRequest, GeneratorError
+from nib.models.style import join_style
 
 MODEL_ID = "blowing-up-groundhogs/eruku"
 
@@ -137,11 +138,9 @@ class ErukuGenerator:
     def _generate_one(self, request: GenerationRequest) -> np.ndarray:
         from PIL import Image
 
-        style = request.style_images[0]
+        style, joined_text = join_style(request.style_images, request.style_texts)
         style_pil = Image.fromarray(np.asarray(style, dtype=np.uint8))
-        style_text = ""
-        if self.use_style_text and request.style_texts:
-            style_text = request.style_texts[0]
+        style_text = joined_text if (self.use_style_text and joined_text) else ""
 
         budget = self.budget_for(request.text)
 

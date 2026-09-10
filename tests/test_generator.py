@@ -533,3 +533,79 @@ def test_eruku_retries_an_empty_output_like_emuru_does():
     assert len(images) == 1
     assert generator.empties.retried == 1
     assert len(model.calls) == 3
+
+
+# ---------------------------------------------------------------------------
+# several style lines as one reference
+# ---------------------------------------------------------------------------
+
+
+def test_one_style_image_passes_through_untouched():
+    """The single-reference case must stay bit-identical, or a change measured
+    against it is a change in the plumbing rather than in the references."""
+    from nib.models.style import join_style
+
+    only = style(1)[0]
+    joined, text = join_style([only], ["a line"])
+
+    assert np.array_equal(joined, only)
+    assert text == "a line"
+
+
+def test_joining_lays_them_side_by_side_with_a_gap():
+    from nib.models.style import GAP_RATIO, join_style
+
+    parts = [np.zeros((64, 100), np.uint8), np.zeros((64, 150), np.uint8)]
+    joined, _ = join_style(parts)
+
+    assert joined.shape == (64, 100 + 150 + round(64 * GAP_RATIO))
+
+
+def test_the_gap_is_paper_and_not_ink():
+    """Butted together, the last word of one line and the first of the next read
+    as a single word and teach a letter join the writer never made."""
+    from nib.models.style import PAPER, join_style
+
+    joined, _ = join_style([np.zeros((64, 40), np.uint8)] * 2)
+
+    assert joined.max() == PAPER, "the separator is darker than paper"
+
+
+def test_the_text_is_joined_to_match_the_image():
+    """Both models are told what the style says. Joining the images without the
+    texts leaves the model reading one line while looking at four."""
+    from nib.models.style import join_style
+
+    _, text = join_style(style(3), ["first", "second", "third"])
+
+    assert text == "first second third"
+
+
+def test_joining_without_texts_returns_none():
+    """Eruku does not require a transcription, so absent must stay absent rather
+    than becoming an empty string that looks like one."""
+    from nib.models.style import join_style
+
+    assert join_style(style(2))[1] is None
+
+
+def test_mismatched_counts_are_refused():
+    from nib.models.style import join_style
+
+    with pytest.raises(ValueError, match="style texts for"):
+        join_style(style(3), ["only", "two"])
+
+
+def test_joining_nothing_is_refused():
+    from nib.models.style import join_style
+
+    with pytest.raises(ValueError, match="no style images"):
+        join_style([])
+
+
+def test_differing_heights_are_reconciled():
+    from nib.models.style import join_style
+
+    joined, _ = join_style([np.zeros((64, 80), np.uint8), np.zeros((32, 80), np.uint8)])
+
+    assert joined.shape[0] == 64
