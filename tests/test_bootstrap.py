@@ -165,3 +165,84 @@ def test_a_distance_is_formatted_as_a_number():
 
     assert "69.46" in text
     assert "%" not in text
+
+
+# ---------------------------------------------------------------------------
+# the subspace projection: exactness bought back as speed
+# ---------------------------------------------------------------------------
+
+
+def test_projecting_to_the_span_does_not_change_fid():
+    """The property the whole optimisation rests on.
+
+    If this drifts, every FID the project has reported since is a different
+    quantity from the ones before it, and no comparison across runs holds.
+    """
+    from nib.engine.metrics.bootstrap import project_to_span
+    from nib.engine.metrics.fid import compute_fid
+
+    rng = np.random.default_rng(0)
+    real = rng.normal(size=(60, 256))
+    generated = rng.normal(loc=0.3, size=(60, 256))
+
+    before = compute_fid(real, generated).value
+    after = compute_fid(*project_to_span(real, generated)).value
+
+    assert after == pytest.approx(before, rel=1e-6)
+
+
+def test_the_projection_actually_reduces_the_dimension():
+    """40 + 40 samples cannot span 256 dimensions, and computing there is why
+    one bootstrap draw took 38 seconds at 2048."""
+    from nib.engine.metrics.bootstrap import project_to_span
+
+    rng = np.random.default_rng(1)
+    real, generated = project_to_span(rng.normal(size=(40, 256)), rng.normal(size=(40, 256)))
+
+    assert real.shape[1] <= 79, "40 + 40 samples span at most 79 dimensions"
+    assert generated.shape[1] == real.shape[1]
+
+
+def test_the_projection_leaves_already_small_features_alone():
+    """More samples than dimensions: nothing to remove, and no basis change
+    that would perturb the value for no gain."""
+    from nib.engine.metrics.bootstrap import project_to_span
+
+    rng = np.random.default_rng(2)
+    real, _ = project_to_span(rng.normal(size=(80, 8)), rng.normal(size=(80, 8)))
+
+    assert real.shape[1] == 8
+
+
+def test_the_fid_interval_is_quick_enough_to_run_inline():
+    """A guard on the mistake, not just the fix. The first version of this asked
+    a Colab session for 21 hours of matrix square roots."""
+    import time
+
+    from nib.engine.metrics.bootstrap import fid_interval
+
+    rng = np.random.default_rng(3)
+    started = time.perf_counter()
+    fid_interval(rng.normal(size=(60, 512)), rng.normal(size=(60, 512)), resamples=25)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 20, f"25 draws took {elapsed:.0f}s; 200 would be unusable"
+
+
+def test_the_fid_interval_contains_its_own_estimate():
+    """The bug this caught, kept as a guard.
+
+    FID rises as the number of distinct samples falls, and a bootstrap draw is
+    only ~63% distinct, so every resampled value is biased upward together. The
+    raw percentile interval came out at [3068, 3124] around an estimate of 2881
+    -- entirely above the number it claimed to describe.
+    """
+    from nib.engine.metrics.bootstrap import fid_interval
+
+    rng = np.random.default_rng(4)
+    interval = fid_interval(
+        rng.normal(size=(80, 128)), rng.normal(loc=0.2, size=(80, 128)), resamples=40
+    )
+
+    assert interval.low <= interval.value <= interval.high
+    assert interval.half_width > 0, "a spread of zero means the resampling did nothing"

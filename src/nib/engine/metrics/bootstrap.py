@@ -121,10 +121,58 @@ def bootstrap_statistic(
     return _percentile_interval(point, draws, resamples, confidence)
 
 
+FID_RESAMPLES = 100
+"""Fewer draws than the other metrics, and the reason is arithmetic.
+
+FID's cost is a matrix square root, which is cubic in the feature dimension.
+Measured: 38.5s at 2048 dimensions, 0.54s at 600, 0.029s at 300. At 2048 the
+2000 draws the cheap metrics use would take 21 hours -- which is what the first
+attempt at this asked a Colab session to do. :func:`project_to_span` removes
+most of that, and 100 draws is the rest of the trade: on 300 samples of real
+Inception features that is about 80 seconds, against an hour for the run it
+describes. The spread's own precision suffers a little; its existence does not."""
+
+
+def project_to_span(
+    real_features: np.ndarray, generated_features: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Both feature sets in the smallest space that holds them, exactly.
+
+    300 samples cannot span 2048 dimensions: their covariance has rank at most
+    299, so the distance is being computed in a space that is almost entirely
+    empty. Projecting onto an orthonormal basis of the combined centred span
+    leaves every Fréchet term unchanged -- squared distances between means are
+    preserved by an orthogonal map, and the covariances' non-zero eigenvalues
+    are the same in either basis -- while cutting the dimension from 2048 to at
+    most ``len(real) + len(generated) - 1``.
+
+    This is exactness bought back as speed rather than traded away for it, which
+    is why it is applied to the point estimate too and not only to the
+    resampling. The `LinAlgWarning: Matrix is singular` that FID has always
+    emitted here is the same fact showing up as a complaint.
+    """
+    stacked = np.vstack([real_features, generated_features]).astype(np.float64)
+    centre = stacked.mean(axis=0)
+    _, singular, basis = np.linalg.svd(stacked - centre, full_matrices=False)
+
+    # Components whose singular value is numerically zero carry no data and
+    # would only make the covariance more singular than it already is.
+    tolerance = (
+        max(stacked.shape) * np.finfo(np.float64).eps * (singular[0] if singular.size else 0)
+    )
+    keep = basis[singular > tolerance]
+    if keep.shape[0] >= stacked.shape[1]:
+        return np.asarray(real_features, dtype=np.float64), np.asarray(
+            generated_features, dtype=np.float64
+        )
+
+    return (real_features - centre) @ keep.T, (generated_features - centre) @ keep.T
+
+
 def fid_interval(
     real_features: np.ndarray,
     generated_features: np.ndarray,
-    resamples: int = DEFAULT_RESAMPLES,
+    resamples: int = FID_RESAMPLES,
     confidence: float = DEFAULT_CONFIDENCE,
     seed: int = 1337,
 ) -> Interval:
@@ -140,8 +188,13 @@ def fid_interval(
     correcting the bias. Two FID figures remain comparable only at equal counts,
     intervals or no intervals.
     """
+    import warnings
+
+    from scipy.linalg import LinAlgWarning
+
     from nib.engine.metrics.fid import frechet_distance, gaussian_statistics
 
+    real_features, generated_features = project_to_span(real_features, generated_features)
     mu_real, sigma_real = gaussian_statistics(real_features)
 
     def statistic(indices: np.ndarray) -> float:
@@ -149,7 +202,38 @@ def fid_interval(
         value, _ = frechet_distance(mu_real, sigma_real, mu_gen, sigma_gen)
         return value
 
-    return bootstrap_statistic(statistic, len(generated_features), resamples, confidence, seed)
+    # A bootstrap draw repeats samples, so its covariance is rank-deficient by
+    # construction and scipy says so every time. Expected, not informative, and
+    # two hundred copies of it would bury the result -- silenced here and
+    # nowhere else, so a singular matrix outside the resampling still speaks up.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", LinAlgWarning)
+        percentile = bootstrap_statistic(
+            statistic, len(generated_features), resamples, confidence, seed
+        )
+
+    # Recentred on the point estimate, and this is not a detail. FID rises as the
+    # number of *distinct* samples falls, and a bootstrap draw holds only about
+    # 63% distinct -- so every resampled value is biased upward together. On 300
+    # real feature sets the bias came to 214 points against a spread of 56, which
+    # put the percentile interval [3068, 3124] entirely above its own estimate of
+    # 2881. An interval that excludes the number it describes is not an interval.
+    #
+    # The bias is common to every draw, so the *width* survives it while the
+    # position does not. What is reported is therefore the spread -- how far the
+    # figure moves when the sample changes -- centred where the measurement
+    # actually is. It answers "could these two runs be telling me the same
+    # thing?", which is the question asked of it, and it is deliberately not a
+    # bias-corrected confidence interval, which this would need far more than a
+    # resampling loop to earn.
+    half = percentile.half_width
+    return Interval(
+        value=percentile.value,
+        low=percentile.value - half,
+        high=percentile.value + half,
+        resamples=resamples,
+        confidence=confidence,
+    )
 
 
 def rate_interval(
