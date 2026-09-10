@@ -156,22 +156,37 @@ def build_requests(pack, writers, style_refs, count, seed):
     return requests, truths
 
 
-def load_generator(name: str, device: str, height: int, failure_rate: float = 0.0):
+def load_generator(
+    name: str,
+    device: str,
+    height: int,
+    failure_rate: float = 0.0,
+    cfg_scale: float | None = None,
+):
     if name == "emuru":
         from nib.models.emuru import EmuruGenerator
 
         return EmuruGenerator(device=device, output_height=height)
     if name == "eruku":
-        from nib.models.eruku import ErukuGenerator
+        from nib.models.eruku import DEFAULT_CFG_SCALE, ErukuGenerator
 
-        return ErukuGenerator(device=device, output_height=height)
+        return ErukuGenerator(
+            device=device,
+            output_height=height,
+            cfg_scale=DEFAULT_CFG_SCALE if cfg_scale is None else cfg_scale,
+        )
     if name == "eruku-no-style-text":
         # The deployable case, measured rather than assumed: what the system
         # scores when nobody has transcribed the style page, which is the
         # situation a real user is always in.
-        from nib.models.eruku import ErukuGenerator
+        from nib.models.eruku import DEFAULT_CFG_SCALE, ErukuGenerator
 
-        return ErukuGenerator(device=device, output_height=height, use_style_text=False)
+        return ErukuGenerator(
+            device=device,
+            output_height=height,
+            use_style_text=False,
+            cfg_scale=DEFAULT_CFG_SCALE if cfg_scale is None else cfg_scale,
+        )
     if name == "fake":
         # Not a model. It draws the target text in a typeface, so every number is
         # meaningless and every shape is right -- which is what a run of this is
@@ -227,6 +242,15 @@ def main(argv: list[str] | None = None) -> int:
         "carries a sampling error nobody quantified.",
     )
     parser.add_argument(
+        "--cfg-scale",
+        type=float,
+        default=None,
+        help="Eruku's classifier-free guidance scale, default 1.25. It weights how "
+        "hard the model is pushed toward its conditioning, and the first full run "
+        "read like a dial set too far toward the text: CER improved by 7 points "
+        "against Emuru while writer retrieval fell from 22.1% to 5.3%.",
+    )
+    parser.add_argument(
         "--allow-stale-references",
         action="store_true",
         help="run even when the baseline was measured on a different version of "
@@ -253,7 +277,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     ensure_dirs(cfg, "outputs")
-    out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}"
+    suffix = "" if args.cfg_scale is None else f"_cfg{args.cfg_scale:g}"
+    out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}{suffix}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
 
     pack = PackReader(get_path(cfg, "processed") / f"cvl_{args.unit}_{height}.lmdb")
@@ -283,7 +308,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"requests           {len(requests)}, {args.style_refs} style samples each")
 
     print(f"\nloading {args.generator} on {device} ...")
-    generator = load_generator(args.generator, device, height, args.fake_failure_rate)
+    generator = load_generator(
+        args.generator, device, height, args.fake_failure_rate, args.cfg_scale
+    )
     print(f"  {generator.name}, output height {generator.output_height}px")
 
     print("\ngenerating")
