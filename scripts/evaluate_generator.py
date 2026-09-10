@@ -239,6 +239,19 @@ def main(argv: list[str] | None = None) -> int:
     device = args.device or ("cuda" if _cuda() else "cpu")
     height = int(cfg.data.image_height)
 
+    # Checked in the first second, not three gigabytes into a download. A fresh
+    # Colab VM arrives without an accelerator unless one is asked for, and the
+    # failure otherwise is a torch stack trace after the checkpoint has landed --
+    # by which point the useful sentence, "you have no GPU", is nowhere in it.
+    if device.startswith("cuda") and not _cuda():
+        print(
+            "asked for --device cuda and torch reports no CUDA.\n"
+            "  On Colab: Runtime -> Change runtime type -> T4 GPU, which rebuilds\n"
+            "  the VM, so cells 1-4 need running again afterwards.\n"
+            "  Generation on CPU is about 220s per line: 300 lines is 18 hours."
+        )
+        return 1
+
     ensure_dirs(cfg, "outputs")
     out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
