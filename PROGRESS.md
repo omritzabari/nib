@@ -139,6 +139,27 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > internally. Raw lines sit at 2nd-percentile brightness ~130; after
 > normalisation ~21. The faint probe output came from loading raw images.
 >
+> ### Product idea, Amri, 2026-09-10: enrol from a dictated passage
+>
+> Instead of asking a new user to photograph a page they already have, hand them
+> a printed passage and ask them to copy it. The transcription is then known
+> exactly, because we chose it -- no recogniser in the loop and no error
+> inherited from one.
+>
+> This is how CVL itself was built, which is why 99,904 of its words carry a
+> transcription nobody typed.
+>
+> Two things it buys beyond the obvious. The passage can be **designed**: one
+> that contains every character in the charset guarantees the system has seen
+> how this person forms a `Q` and a semicolon, rather than hoping they turned
+> up. And it stays worth doing even with Eruku, whose `style_text` is optional
+> but documented as helping -- a dictated passage gives the best possible one for
+> free rather than merely avoiding the worst.
+>
+> The cost is that it is a different product. "Copy this passage" works for
+> enrolment and does not work on a page that already exists -- an old letter, a
+> diary, a grandparent's hand. Both may be wanted; they are not the same feature.
+>
 > ### Known and open
 >
 > - Emuru needs the style sample's *transcription*. A user photographing a page

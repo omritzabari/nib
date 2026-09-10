@@ -49,6 +49,7 @@ import numpy as np
 from nib.config import ensure_dirs, get_path, load_config
 from nib.data.pack import PackReader
 from nib.data.split import WriterSplit
+from nib.engine.metrics import bootstrap
 from nib.engine.metrics import cer as cer_mod
 from nib.engine.metrics.fid import InceptionFeatures, compute_fid
 from nib.engine.metrics.writer import WriterRetrieval
@@ -160,6 +161,17 @@ def load_generator(name: str, device: str, height: int, failure_rate: float = 0.
         from nib.models.emuru import EmuruGenerator
 
         return EmuruGenerator(device=device, output_height=height)
+    if name == "eruku":
+        from nib.models.eruku import ErukuGenerator
+
+        return ErukuGenerator(device=device, output_height=height)
+    if name == "eruku-no-style-text":
+        # The deployable case, measured rather than assumed: what the system
+        # scores when nobody has transcribed the style page, which is the
+        # situation a real user is always in.
+        from nib.models.eruku import ErukuGenerator
+
+        return ErukuGenerator(device=device, output_height=height, use_style_text=False)
     if name == "fake":
         # Not a model. It draws the target text in a typeface, so every number is
         # meaningless and every shape is right -- which is what a run of this is
@@ -175,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--generator",
         default="emuru",
-        choices=("emuru", "fake"),
+        choices=("emuru", "eruku", "eruku-no-style-text", "fake"),
         help="fake draws the target text in a typeface: every number it gives is "
         "meaningless and every shape is right, which proves the harness before an "
         "hour of GPU is spent on it.",
@@ -206,6 +218,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default=None)
     parser.add_argument("--save-images", type=int, default=32)
+    parser.add_argument(
+        "--cer-samples",
+        type=int,
+        default=0,
+        help="how many samples to read for CER. 0 means all of them, which is "
+        "the default because a headline number measured on a fifth of the data "
+        "carries a sampling error nobody quantified.",
+    )
     parser.add_argument(
         "--allow-stale-references",
         action="store_true",
@@ -327,7 +347,16 @@ def main(argv: list[str] | None = None) -> int:
     print(f"samples            {out_dir / 'samples'}  (real on top, generated below)")
 
     results = _measure(
-        cfg, generated, truths, held_out, pack, device, out_dir, reference, provenance
+        cfg,
+        generated,
+        truths,
+        held_out,
+        pack,
+        device,
+        out_dir,
+        reference,
+        provenance,
+        args.cer_samples,
     )
     results.update(results_run)
     pack.close()
@@ -337,7 +366,9 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _measure(cfg, generated, truths, held_out, pack, device, out_dir, reference, provenance):
+def _measure(
+    cfg, generated, truths, held_out, pack, device, out_dir, reference, provenance, cer_samples
+):
     real = [t.image for t in truths]
     results: dict = {"count": len(generated)}
 
@@ -348,9 +379,16 @@ def _measure(cfg, generated, truths, held_out, pack, device, out_dir, reference,
     print("\n" + "=" * 62)
     print("FID -- does it look like handwriting at all")
     inception = InceptionFeatures(device=device)
-    fid = compute_fid(inception(real), inception(generated))
+    # Kept rather than discarded. Resampling 2048 floats per image is what turns
+    # a bare number into one with a spread, and it costs a few megabytes against
+    # the hour of GPU it would take to learn the same thing by running again.
+    features_real = inception(real)
+    features_generated = inception(generated)
+    fid = compute_fid(features_real, features_generated)
+    fid_ci = bootstrap.fid_interval(features_real, features_generated)
     results["fid"] = fid.value
-    print(f"  generated  {fid.value:8.2f}")
+    results["fid_ci"] = [fid_ci.low, fid_ci.high]
+    print(f"  generated  {fid_ci.format()}")
     print(f"  reference  {reference['fid_floor']:8.2f}   two halves of real handwriting")
     print(f"  -> {fid.value / reference['fid_floor']:.1f}x the floor")
 
@@ -400,7 +438,11 @@ def _measure(cfg, generated, truths, held_out, pack, device, out_dir, reference,
     scored = retrieval.evaluate([image for image, _ in pairs], [w for _, w in pairs])
     results["retrieval_top1"] = scored.top1
     results["retrieval_top5"] = scored.topk
-    print(f"  generated  {scored.top1:7.1%} top-1   {scored.topk:.1%} top-5")
+    top1_ci = bootstrap.rate_interval(scored.hits_top1)
+    top5_ci = bootstrap.rate_interval(scored.hits_topk)
+    results["retrieval_top1_ci"] = [top1_ci.low, top1_ci.high]
+    print(f"  generated  {top1_ci.format(as_percent=True)} top-1")
+    print(f"             {top5_ci.format(as_percent=True)} top-5")
     print(f"  reference  {reference['retrieval_real']:7.1%}   real handwriting")
     print(f"  chance     {scored.chance:7.1%}")
     if scored.top1 < scored.chance * 3:
@@ -415,7 +457,12 @@ def _measure(cfg, generated, truths, held_out, pack, device, out_dir, reference,
     from nib.engine.metrics.recogniser import TrOcrRecogniser
 
     recogniser = TrOcrRecogniser(device=device)
-    subset = min(64, len(generated))
+    # Every sample by default. It used to be the first 64 of 298, which put a
+    # headline number on a fifth of the data while FID used all of it -- and the
+    # sampling error in that fifth was never quantified.
+    subset = len(generated) if cer_samples <= 0 else min(cer_samples, len(generated))
+    if subset < len(generated):
+        print(f"  reading {subset} of {len(generated)} on request")
     scored_cer = cer_mod.evaluate(
         recogniser,
         generated_images=generated[:subset],
@@ -425,19 +472,73 @@ def _measure(cfg, generated, truths, held_out, pack, device, out_dir, reference,
     )
     results["cer_generated"] = scored_cer.generated
     results["cer_real"] = scored_cer.real
+    cer_ci = bootstrap.cer_interval(scored_cer.errors, scored_cer.lengths)
+    real_cer_ci = bootstrap.cer_interval(scored_cer.real_errors, scored_cer.lengths)
+    results["cer_generated_ci"] = [cer_ci.low, cer_ci.high]
     print("\n" + scored_cer.summary())
+    print(f"\n  generated  {cer_ci.format(as_percent=True)}")
+    print(f"  real       {real_cer_ci.format(as_percent=True)}")
     print("\n  NOTE: TrOCR reads isolated words badly (53% on real words against 11%")
     print("  on lines). Both numbers above share that handicap, so the *gap* is the")
     print("  meaningful figure, not either value on its own.")
 
+    _save_analysis(
+        out_dir,
+        truths=truths,
+        generated=generated,
+        features_real=features_real,
+        features_generated=features_generated,
+        hits_top1=scored.hits_top1,
+        hits_topk=scored.hits_topk,
+        cer_errors=scored_cer.errors,
+        cer_lengths=scored_cer.lengths,
+        cer_real_errors=scored_cer.real_errors,
+    )
+
     print("\n" + "=" * 62)
-    print("SUMMARY -- generated vs real")
-    print(f"  FID            {results['fid']:8.2f}   vs {reference['fid_floor']:.2f} for real")
+    print("SUMMARY -- generated vs real, with 95% intervals")
+    print(f"  FID            {fid_ci.format():>28}   vs {reference['fid_floor']:.2f} for real")
     print(
-        f"  writer top-1   {results['retrieval_top1']:8.1%}   vs {reference['retrieval_real']:.1%} for real"
+        f"  writer top-1   {top1_ci.format(as_percent=True):>28}   "
+        f"vs {reference['retrieval_real']:.1%} for real"
+    )
+    print(
+        f"  CER            {cer_ci.format(as_percent=True):>28}   "
+        f"vs {real_cer_ci.value:.1%} for real"
     )
     print(f"  CER gap        {(scored_cer.gap or 0):+8.1%}   generated minus real")
+    print("\n  Two results whose intervals overlap cannot be told apart.")
     return results
+
+
+def _save_analysis(out_dir, *, truths, generated, **arrays) -> None:
+    """Write what the metrics were computed from, so they can be re-examined
+    without a GPU.
+
+    Two files. ``analysis.npz`` holds the numeric terms -- Inception features,
+    per-query hits, per-sample edit distances -- which is what a confidence
+    interval, an ablation or a second opinion needs. ``per_sample.json`` holds
+    what each sample *was*: its key, its writer, its text and the width it came
+    out at, so a number can always be traced back to the lines that produced it.
+
+    A run that reports only its conclusions has to be repeated to be questioned.
+    """
+    np.savez_compressed(out_dir / "analysis.npz", **{k: np.asarray(v) for k, v in arrays.items()})
+
+    records = [
+        {
+            "key": truth.key,
+            "writer_id": truth.writer_id,
+            "text": truth.text,
+            "real_width": int(truth.image.shape[1]),
+            "generated_width": int(image.shape[1]),
+        }
+        for truth, image in zip(truths, generated, strict=True)
+    ]
+    (out_dir / "per_sample.json").write_text(
+        json.dumps(records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"\nanalysis          {out_dir / 'analysis.npz'}  (re-examine without a GPU)")
 
 
 def _embedder(cfg, device):

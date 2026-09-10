@@ -59,6 +59,14 @@ class RetrievalResult:
     chance: float = 0.0
     per_writer: dict[str, float] = field(default_factory=dict)
 
+    hits_top1: list[bool] = field(default_factory=list)
+    """Whether each individual query was answered correctly."""
+
+    hits_topk: list[bool] = field(default_factory=list)
+    """The same for top-k. Kept because a rate cannot be resampled from itself:
+    a confidence interval needs the per-query outcomes the rate averaged over.
+    See :mod:`nib.engine.metrics.bootstrap`."""
+
     @property
     def lift_over_chance(self) -> float:
         """How far above guessing. With 94 writers, chance is about 1%, so a top-1
@@ -170,6 +178,8 @@ class WriterRetrieval:
             num_writers=len(self.writer_ids),
             chance=1.0 / len(self.writer_ids),
             per_writer={w: float(np.mean(v)) for w, v in per_writer.items()},
+            hits_top1=[bool(h) for h in hits1],
+            hits_topk=[bool(h) for h in hitsk],
         )
 
 

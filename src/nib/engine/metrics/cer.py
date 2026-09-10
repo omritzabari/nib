@@ -19,7 +19,7 @@ next to the same recogniser's score on real images from the same writers, and
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import numpy as np
@@ -99,6 +99,20 @@ class CerResult:
     real: float | None = None
     num_samples: int = 0
 
+    errors: list[int] = field(default_factory=list)
+    """Edit distance per sample, for the generated images."""
+
+    lengths: list[int] = field(default_factory=list)
+    """Target length per sample, the denominator of the corpus ratio."""
+
+    real_errors: list[int] = field(default_factory=list)
+    """The same for the real images, where a baseline was measured.
+
+    Kept alongside the aggregate rather than thrown away, because a corpus ratio
+    cannot be resampled from its own total: a confidence interval needs the
+    per-sample terms it was summed from. See :mod:`nib.engine.metrics.bootstrap`.
+    """
+
     @property
     def gap(self) -> float | None:
         """How much worse the generated images read than real ones.
@@ -135,17 +149,29 @@ def evaluate(
 
     predictions = _read_in_batches(recogniser, generated_images, batch_size)
     generated = corpus_cer(predictions, list(targets))
+    errors = [edit_distance(p, t) for p, t in zip(predictions, targets, strict=True)]
+    lengths = [len(t) for t in targets]
 
     real = None
+    real_errors: list[int] = []
     if real_images is not None:
         if real_targets is None or len(real_images) != len(real_targets):
             raise ValueError("real_images and real_targets must be the same length")
         if real_images:
-            real = corpus_cer(
-                _read_in_batches(recogniser, real_images, batch_size), list(real_targets)
-            )
+            real_predictions = _read_in_batches(recogniser, real_images, batch_size)
+            real = corpus_cer(real_predictions, list(real_targets))
+            real_errors = [
+                edit_distance(p, t) for p, t in zip(real_predictions, real_targets, strict=True)
+            ]
 
-    return CerResult(generated=generated, real=real, num_samples=len(generated_images))
+    return CerResult(
+        generated=generated,
+        real=real,
+        num_samples=len(generated_images),
+        errors=errors,
+        lengths=lengths,
+        real_errors=real_errors,
+    )
 
 
 def _read_in_batches(

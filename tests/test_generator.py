@@ -426,3 +426,110 @@ def test_the_fake_generator_writes_nothing_off_by_default():
     images = FakeGenerator().generate([request(t) for t in texts])
 
     assert len(images) == 50
+
+
+# ---------------------------------------------------------------------------
+# Eruku, and the failure that would look like success
+# ---------------------------------------------------------------------------
+
+
+class FakeEruku:
+    """Stands in for the checkpoint. Records what it was called with."""
+
+    def __init__(self, output: np.ndarray | None = None, empties: int = 0):
+        self.output = output
+        self.empties = empties
+        self.calls: list[dict] = []
+
+    def generate_handwriting(self, style_image, gen_text, style_text, cfg_scale, max_new_tokens):
+        from PIL import Image
+
+        self.calls.append({"gen_text": gen_text, "style_text": style_text, "cfg": cfg_scale})
+        if len(self.calls) <= self.empties:
+            return Image.new("L", (0, 64), 255)
+        if self.output is not None:
+            return Image.fromarray(self.output)
+        return Image.fromarray(np.full((64, 200), 128, dtype=np.uint8))
+
+
+def eruku_stub(model, use_style_text: bool = True):
+    """An ErukuGenerator with a fake model and no 3 GB download."""
+    from nib.models.emuru import EmptyOutputLog, TruncationLog
+    from nib.models.eruku import DEFAULT_CFG_SCALE, ErukuGenerator
+
+    generator = object.__new__(ErukuGenerator)
+    generator.model = model
+    generator._output_height = 64
+    generator.max_new_tokens = None
+    generator.tokens_per_char = 5.5
+    generator.cfg_scale = DEFAULT_CFG_SCALE
+    generator.empty_retries = 3
+    generator.use_style_text = use_style_text
+    generator.truncations = TruncationLog()
+    generator.empties = EmptyOutputLog()
+    generator._prefix_checked = False
+    return generator
+
+
+def test_eruku_output_that_begins_with_its_style_image_is_refused():
+    """The failure that moves every metric the way success moves.
+
+    An output carrying its style prefix contains a real crop of the writer's
+    hand: writer retrieval rises, FID improves, and nothing looks wrong.
+    """
+    style_image = np.random.default_rng(0).integers(0, 255, (64, 90), dtype=np.uint8)
+    leaked = np.concatenate([style_image, np.full((64, 150), 128, dtype=np.uint8)], axis=1)
+    generator = eruku_stub(FakeEruku(output=leaked))
+
+    request = GenerationRequest(text="a line", style_images=[style_image], style_texts=["ref"])
+    with pytest.raises(GeneratorError, match="starts with its own style image"):
+        generator.generate([request])
+
+
+def test_eruku_output_that_does_not_repeat_the_style_passes():
+    rng = np.random.default_rng(1)
+    style_image = rng.integers(0, 255, (64, 90), dtype=np.uint8)
+    fresh = rng.integers(0, 255, (64, 240), dtype=np.uint8)
+    generator = eruku_stub(FakeEruku(output=fresh))
+
+    request = GenerationRequest(text="a line", style_images=[style_image], style_texts=["ref"])
+    images = generator.generate([request])
+
+    assert images[0].shape == (64, 240)
+
+
+def test_eruku_can_be_asked_to_ignore_the_style_transcription():
+    """The deployable case. A user photographing a page has transcribed nothing,
+    and Emuru could not be run this way at all."""
+    model = FakeEruku()
+    generator = eruku_stub(model, use_style_text=False)
+
+    generator.generate([request("some text")])
+
+    assert model.calls[0]["style_text"] == ""
+    assert generator.name == "eruku-no-style-text"
+
+
+def test_eruku_passes_the_transcription_when_it_has_one():
+    model = FakeEruku()
+    generator = eruku_stub(model, use_style_text=True)
+
+    generator.generate(
+        [GenerationRequest(text="target", style_images=style(1), style_texts=["the reference"])]
+    )
+
+    assert model.calls[0]["style_text"] == "the reference"
+    assert generator.name == "eruku"
+
+
+def test_eruku_retries_an_empty_output_like_emuru_does():
+    """Kept identical on purpose: two generators whose failure handling differs
+    cannot be compared on their failure counts."""
+    model = FakeEruku(empties=2)
+    generator = eruku_stub(model)
+
+    images = generator.generate([request("a line")])
+
+    assert len(images) == 1
+    assert generator.empties.retried == 1
+    assert len(model.calls) == 3
