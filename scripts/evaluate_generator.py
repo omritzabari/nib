@@ -277,7 +277,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     ensure_dirs(cfg, "outputs")
+    # Every setting that changes the result belongs in the directory name, or a
+    # sweep overwrites itself and the comparison is silently a run against
+    # itself. cfg_scale was covered and style_refs was not, which cost one
+    # baseline before anyone noticed.
     suffix = "" if args.cfg_scale is None else f"_cfg{args.cfg_scale:g}"
+    if args.style_refs != 1:
+        suffix += f"_refs{args.style_refs}"
     out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}{suffix}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
 
