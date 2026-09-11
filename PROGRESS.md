@@ -73,6 +73,19 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > ### The immediate next task
 >
+> **Run `notebooks/colab_eval.ipynb`, cells 1 to 7.** That gives the project's
+> first trustworthy style figure: Emuru's HWD against the 0.641 floor, with the
+> 2.931 typeface reading as the far end of the scale. About an hour.
+>
+> Cell 8 adds Eruku for the comparison, three hours -- worth it because the
+> Emuru-against-Eruku result of 2026-09-10 was decided by the metric that turned
+> out to measure sharpness, and Eruku's output may simply be softer.
+>
+> The notebook was rebuilt on 2026-09-11 around this run. Cells that should not
+> be run are below a "kept for reference" divider and commented out.
+>
+> ### The task before it, for reference
+>
 > **Re-run T16 with the corrected token budget.** 10.7% of the output was
 > truncated, and a line cut short loses its ending to deletion errors, so part of
 > the CER gap is ours rather than the model's. `TOKENS_PER_CHAR` moved from 4.0
