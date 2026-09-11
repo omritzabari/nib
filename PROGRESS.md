@@ -160,7 +160,39 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > enrolment and does not work on a page that already exists -- an old letter, a
 > diary, a grandparent's hand. Both may be wanted; they are not the same feature.
 >
-> ### Where the project actually stands, 2026-09-10
+> ### The style metric was broken, and is now replaced -- 2026-09-11
+>
+> **Read this before trusting any retrieval figure in this file.** A *real* line,
+> by unquestionably the right writer, blurred by 0.8 pixels:
+>
+> | | ours (retrieval) | HWD |
+> |---|---|---|
+> | other real lines | 96.8% | 0.641 |
+> | the same lines, blurred 0.8px | **12.2%** | 0.721 |
+> | the same lines, resampled 1/2 | 10.1% | 0.636 |
+> | the same text in a typeface | -- | 2.931 |
+>
+> Blur does not change whose handwriting something is, and every generative
+> decoder produces exactly that softness. So writer retrieval has been reporting
+> sharpness as much as style, and **Emuru's 22.1% is better than a real line by
+> the correct writer put through a mild blur.** The comparisons of 2026-09-10 --
+> Emuru against Eruku, the cfg sweep -- are all confounded by output sharpness.
+>
+> `nib.engine.metrics.hwd` replaces it as the primary style measure. HWD is a
+> VGG16 trained on 100M rendered lines, it moves 12% under the damage that costs
+> ours 87%, it separates handwriting from a typeface by 4.5x, and it is what
+> Emuru's and Eruku's own papers report -- so our figures become comparable to
+> published ones for the first time. Optional extra: `pip install -e ".[hwd]"`.
+>
+> Retrieval stays, because a percentage is far more legible than a distance and
+> two agreeing measures beat one -- but it needs retraining with blur, resampling
+> and noise in its augmentation before its number means what it says. About 20
+> minutes on a T4, per the T11 notes.
+>
+> **Next run:** `--generator emuru --samples 300` with the hwd extra installed.
+> That is the project's first honest style number.
+>
+> ### Where the project stood before that, 2026-09-10
 >
 > | | Emuru | Eruku cfg 1.25 | Eruku cfg 1.0 | real |
 > |---|---|---|---|---|
@@ -231,7 +263,10 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T16 | Per-request token budget, then evaluate the generator | **done** | T4, 2026-09-09, two runs of 300. Best: FID 69.46 · writer 22.1% top-1 · CER gap +20.4% · 8.7% truncated |
 | T17 | Confidence intervals, full-sample CER, saved analysis | **done** | 364 tests · every figure now carries a 95% spread · `analysis.npz` reconstructs a run's metrics exactly |
 | T18 | Eruku adapter, and Eruku measured | **done** | T4, 2026-09-10, 128 min over 300: FID 80.74 [73.2, 88.3] · writer 5.3% [3.0, 8.0] · CER gap +13.0% · **zero empty outputs** |
-| T19 | Sweep Eruku's guidance scale | **half** | cfg 1.0 over 60: writer 10.0% [3.3, 18.3] against 5.3% at 1.25. cfg 2.0 pending |
+| T19 | Sweep Eruku's guidance scale | **done, negative** | cfg 1.0 / 1.25 / 2.0 -> 10.0% / 5.3% / 6.7%, all intervals overlapping. cfg 2.0 clearly worse (15% truncated). Even cfg 1.0's upper bound is below Emuru's 22.1% |
+| T20 | Several style lines as one reference | **done, thresholded** | 1 and 2 lines generate normally (0.89x, 0.85x of real width); 4 breaks Emuru (0.25x). The prefix outgrows what its stopping heuristic tolerates |
+| T21 | Calibrate the style metric | **done** | A real line blurred 0.8px scores 12.2% against 96.8% untouched. The metric measures sharpness |
+| T22 | HWD as the style metric | **code done, run pending** | 0.641 real / 0.721 blurred / 2.931 typeface, measured here. Needs one 300-sample run |
 
 ## Waiting on Amri
 
