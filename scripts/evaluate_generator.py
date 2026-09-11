@@ -39,8 +39,10 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import cv2
@@ -130,11 +132,14 @@ def build_requests(pack, writers, style_refs, count, seed):
     """One request per target sample: that writer's other samples as style.
 
     Returns the requests alongside the real image of each target, which is what
-    the comparison needs -- and which the generator is never shown.
+    the comparison needs -- and which the generator is never shown -- and every
+    key the run consumed as a target or a style line, which HWD's reference must
+    not contain.
     """
     rng = random.Random(seed)
     by_writer = pack.writers()
     requests, truths = [], []
+    consumed: set[str] = set()
 
     eligible = [w for w in writers if len(by_writer.get(w, [])) >= style_refs + 2]
     if not eligible:
@@ -143,6 +148,7 @@ def build_requests(pack, writers, style_refs, count, seed):
     while len(requests) < count:
         writer = rng.choice(eligible)
         keys = rng.sample(sorted(by_writer[writer]), style_refs + 1)
+        consumed.update(keys)
         target = pack[keys[0]]
         refs = [pack[k] for k in keys[1:]]
 
@@ -154,7 +160,7 @@ def build_requests(pack, writers, style_refs, count, seed):
             )
         )
         truths.append(target)
-    return requests, truths
+    return requests, truths, consumed
 
 
 def load_generator(
@@ -311,7 +317,9 @@ def main(argv: list[str] | None = None) -> int:
     held_out = [w for w in split.writers["test"] if w in pack.writers()]
     print(f"held-out writers   {len(held_out)}  (never trained on by anything here)")
 
-    requests, truths = build_requests(pack, held_out, args.style_refs, args.samples, int(cfg.seed))
+    requests, truths, consumed = build_requests(
+        pack, held_out, args.style_refs, args.samples, int(cfg.seed)
+    )
     print(f"requests           {len(requests)}, {args.style_refs} style samples each")
 
     print(f"\nloading {args.generator} on {device} ...")
@@ -393,6 +401,12 @@ def main(argv: list[str] | None = None) -> int:
         cv2.imwrite(str(out_dir / "samples" / f"{i:03d}_{truths[i].text}.png"), pair)
     print(f"samples            {out_dir / 'samples'}  (real on top, generated below)")
 
+    # Every generated image, before any metric runs. Until now nothing was saved
+    # until the end, so an exception inside a metric took the hour of generation
+    # with it -- and HWD had never run on a GPU machine when the first run to
+    # need it began. With these on disk, any metric can be recomputed without one.
+    _save_generated(out_dir, truths=truths, generated=generated)
+
     results = _measure(
         cfg,
         generated,
@@ -404,6 +418,7 @@ def main(argv: list[str] | None = None) -> int:
         reference,
         provenance,
         args.cer_samples,
+        consumed,
     )
     results.update(results_run)
     pack.close()
@@ -414,7 +429,17 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _measure(
-    cfg, generated, truths, held_out, pack, device, out_dir, reference, provenance, cer_samples
+    cfg,
+    generated,
+    truths,
+    held_out,
+    pack,
+    device,
+    out_dir,
+    reference,
+    provenance,
+    cer_samples,
+    consumed,
 ):
     real = [t.image for t in truths]
     results: dict = {"count": len(generated)}
@@ -504,10 +529,24 @@ def _measure(
     # Our retrieval percentage collapses under a 0.8px blur that does not change
     # whose handwriting it is, so it reports sharpness as much as style. HWD
     # moves 12% under the same damage, and is what Emuru's and Eruku's own
-    # papers report -- so this figure can sit beside a published one.
-    hwd_value = hwd_mod.compute_hwd(generated, real, [t.writer_id for t in truths])
-    results["hwd"] = hwd_value
-    print("  " + hwd_mod.describe(hwd_value).replace("\n", "\n  "))
+    # papers report.
+    #
+    # Its floor and ceiling are measured here, on this run's writers and counts,
+    # never read from a constant: real lines scored the way this run scores them
+    # read 1.06, not the 0.641 the constant said, because a writer's mean over
+    # three lines is noisier than over eight. See nib.engine.metrics.hwd.
+    #
+    # Guarded, and loudly. It is the one metric that has never run on the machine
+    # this executes on, and CER still has minutes of work to do after it.
+    try:
+        hwd_result, hwd_reference_keys = _hwd(cfg, generated, truths, pack, consumed)
+        print("  " + hwd_mod.describe(hwd_result).replace("\n", "\n  "))
+    except Exception:
+        traceback.print_exc()
+        results["hwd_error"] = traceback.format_exc()
+        hwd_result, hwd_reference_keys = None, []
+        print("  FAILED -- the traceback is above. The other metrics carry on.")
+    results |= _hwd_fields(hwd_result)
 
     print("\n" + "=" * 62)
     print("CER -- is it readable as the intended text")
@@ -539,10 +578,17 @@ def _measure(
     print("  on lines). Both numbers above share that handicap, so the *gap* is the")
     print("  meaningful figure, not either value on its own.")
 
+    hwd_arrays = {}
+    if hwd_result is not None:
+        hwd_arrays = {
+            "hwd_writers": hwd_result.generated.writers,
+            "hwd_generated": hwd_result.generated.per_writer,
+            "hwd_real": hwd_result.real.per_writer,
+            "hwd_typeface": hwd_result.typeface.per_writer,
+            "hwd_reference_keys": hwd_reference_keys,
+        }
     _save_analysis(
         out_dir,
-        truths=truths,
-        generated=generated,
         features_real=features_real,
         features_generated=features_generated,
         hits_top1=scored.hits_top1,
@@ -550,6 +596,7 @@ def _measure(
         cer_errors=scored_cer.errors,
         cer_lengths=scored_cer.lengths,
         cer_real_errors=scored_cer.real_errors,
+        **hwd_arrays,
     )
 
     print("\n" + "=" * 62)
@@ -563,26 +610,47 @@ def _measure(
         f"  CER            {cer_ci.format(as_percent=True):>28}   "
         f"vs {real_cer_ci.value:.1%} for real"
     )
-    if hwd_value is not None:
-        print(f"  HWD            {hwd_value:8.3f}   vs {hwd_mod.REAL_FLOOR:.3f} for real")
+    if hwd_result is not None:
+        print(
+            f"  HWD            {hwd_result.generated.interval().format():>28}   "
+            f"vs {hwd_result.real.value:.2f} for real, "
+            f"{hwd_result.typeface.value:.2f} for a typeface"
+        )
     print(f"  CER gap        {(scored_cer.gap or 0):+8.1%}   generated minus real")
     print("\n  Two results whose intervals overlap cannot be told apart.")
     return results
 
 
-def _save_analysis(out_dir, *, truths, generated, **arrays) -> None:
-    """Write what the metrics were computed from, so they can be re-examined
-    without a GPU.
+def _save_analysis(out_dir, **arrays) -> None:
+    """Write the numeric terms the metrics were computed from, so they can be
+    re-examined without a GPU.
 
-    Two files. ``analysis.npz`` holds the numeric terms -- Inception features,
-    per-query hits, per-sample edit distances -- which is what a confidence
-    interval, an ablation or a second opinion needs. ``per_sample.json`` holds
-    what each sample *was*: its key, its writer, its text and the width it came
-    out at, so a number can always be traced back to the lines that produced it.
+    ``analysis.npz`` holds Inception features, per-query hits, per-sample edit
+    distances and HWD's per-writer distances -- which is what a confidence
+    interval, an ablation or a second opinion needs.
 
     A run that reports only its conclusions has to be repeated to be questioned.
     """
     np.savez_compressed(out_dir / "analysis.npz", **{k: np.asarray(v) for k, v in arrays.items()})
+    print(f"\nanalysis          {out_dir / 'analysis.npz'}  (re-examine without a GPU)")
+
+
+def _save_generated(out_dir, *, truths, generated) -> None:
+    """What each sample *was*, and the image the model made for it.
+
+    ``per_sample.json`` holds each sample's key, writer, text and the width it
+    came out at, so a number can always be traced back to the lines that produced
+    it. ``generated/NNN.png`` is entry NNN of that file, as the model wrote it.
+    Written before any metric runs, so a metric that fails costs a re-score and
+    not a re-generation.
+    """
+    images = out_dir / "generated"
+    # Cleared first: a rerun that kept fewer samples would otherwise leave the
+    # previous run's tail beside it, numbered as if it were this one's.
+    shutil.rmtree(images, ignore_errors=True)
+    images.mkdir(parents=True)
+    for index, image in enumerate(generated):
+        cv2.imwrite(str(images / f"{index:03d}.png"), image)
 
     records = [
         {
@@ -597,7 +665,56 @@ def _save_analysis(out_dir, *, truths, generated, **arrays) -> None:
     (out_dir / "per_sample.json").write_text(
         json.dumps(records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    print(f"\nanalysis          {out_dir / 'analysis.npz'}  (re-examine without a GPU)")
+    print(f"generated          {images}  ({len(generated)} images, saved before any metric)")
+
+
+def _hwd(cfg, generated, truths, pack, consumed):
+    """HWD for the generated lines, with its floor and ceiling from this same run.
+
+    The typeface is the fake generator's rendering of the target texts: no hand
+    at all, on exactly the texts and writers the model was scored on. Returns the
+    result and the reference keys, so the reference can be rebuilt without a GPU.
+    """
+    if not hwd_mod.available():
+        return None, []
+    from nib.models.fake import FakeGenerator
+
+    writers = [truth.writer_id for truth in truths]
+    reference = hwd_mod.select_reference(pack.writers(), consumed, writers, seed=int(cfg.seed))
+    fake = FakeGenerator(output_height=int(cfg.data.image_height))
+    # The fake generator ignores its style input, but a request must carry one.
+    typeface = [
+        to_uint8(fake.generate([GenerationRequest(text=t.text, style_images=[t.image])])[0])
+        for t in truths
+    ]
+    result = hwd_mod.measure(
+        generated,
+        [truth.image for truth in truths],
+        typeface,
+        writers,
+        [pack[key].image for key in reference.keys],
+        reference.writer_ids,
+    )
+    return result, reference.keys
+
+
+def _hwd_fields(result) -> dict:
+    """What results.json records of HWD: None when it was not measured."""
+    if result is None:
+        return {"hwd": None}
+    generated_ci = result.generated.interval()
+    real_ci = result.real.interval()
+    return {
+        "hwd": result.generated.value,
+        "hwd_ci": [generated_ci.low, generated_ci.high],
+        "hwd_real": result.real.value,
+        "hwd_real_ci": [real_ci.low, real_ci.high],
+        "hwd_typeface": result.typeface.value,
+        "hwd_position": result.position,
+        "hwd_reference_lines": result.reference_lines,
+        "hwd_scored": result.scored,
+        "hwd_withheld": result.withheld_samples,
+    }
 
 
 def _embedder(cfg, device):

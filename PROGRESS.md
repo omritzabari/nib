@@ -73,16 +73,61 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > ### The immediate next task
 >
-> **Run `notebooks/colab_eval.ipynb`, cells 1 to 7.** That gives the project's
-> first trustworthy style figure: Emuru's HWD against the 0.641 floor, with the
-> 2.931 typeface reading as the far end of the scale. About an hour.
+> **Run `notebooks/colab_eval.ipynb`, cells 1 to 7** -- cell 1 again on a VM that
+> already cloned, so it pulls T23. That gives the project's first trustworthy
+> style figure: Emuru's HWD read against the real-handwriting and typeface figures
+> **measured in the same run**, not against 0.641. About an hour.
+>
+> Three things to see on the way. Cell 2 must print `hwd available: True`. Cell 5
+> (the fake generator) must print an HWD block whose `generated` equals `typeface`
+> at 100% -- for that generator they are the same images -- and it is HWD's first
+> run on a GPU machine. Cell 6 writes every generated image to `generated/`
+> before any metric runs.
 >
 > Cell 8 adds Eruku for the comparison, three hours -- worth it because the
 > Emuru-against-Eruku result of 2026-09-10 was decided by the metric that turned
 > out to measure sharpness, and Eruku's output may simply be softer.
+> `analyse_run.py` does not read HWD yet; cell 9 needs that before it can compare
+> two runs on style.
 >
 > The notebook was rebuilt on 2026-09-11 around this run. Cells that should not
 > be run are below a "kept for reference" divider and commented out.
+>
+> ### HWD's floor was not a floor -- 2026-09-11, T23
+>
+> HWD is the distance between each writer's *mean* feature on either side, and a
+> mean over few lines is noisy -- noise that adds to the distance even when both
+> sides are the same person's real hand. Real lines against other real lines by
+> the same 90 held-out writers, k lines per writer per side:
+>
+> | k | 1 | 2 | 3 | 6 | 10 |
+> |---|---|---|---|---|---|
+> | HWD, real vs real | 1.760 | 1.255 | 1.005 | 0.704 | 0.539 |
+>
+> Under the exact sampling of a 300-sample run (93 writers, 1 to 7 lines each),
+> real against real read **1.055 / 1.063 / 1.107** over three seeds. The 0.641
+> quoted as the floor came from an uncommitted script at about seven or eight
+> lines per writer, judging by the curve. Cell 6 as it stood would have reported
+> even a perfect generator as nearly a fifth of the way to no hand at all.
+>
+> Content barely registers: a typeface scored 3.080 against the target's own text
+> and 3.075 against a different one.
+>
+> **What changed.** Every run now scores three aligned sets against one shared
+> reference -- up to 12 real lines per writer that are neither a target nor a
+> style line: the generated lines, the real target lines (same writers, texts and
+> counts), and the same texts in a typeface. Generated and real differ in nothing
+> but being generated. HWD carries a 95% interval by resampling writers, its
+> per-writer terms go into `analysis.npz`, and the per-writer computation matches
+> the package's own `HWDScore` to 2e-8 on real lines. An HWD failure no longer
+> takes CER or the saved bundle with it.
+>
+> Also found on the way. Cell 2 imported `nib` inside the Colab kernel, where
+> `/content/nib` -- the clone -- reads as an empty namespace package, and failed
+> with `No module named 'nib.engine'`; it now checks in a fresh interpreter, which
+> is where the scripts run. And `hwd` has never been importable locally: its
+> `editdistance` dependency has no Windows wheel for Python 3.13, which is why
+> 0.641 was measured through a workaround nobody saved.
 >
 > ### The task before it, for reference
 >
@@ -205,6 +250,11 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > **Next run:** `--generator emuru --samples 300` with the hwd extra installed.
 > That is the project's first honest style number.
 >
+> **The HWD column above is relative, not absolute.** Its figures came from a
+> script that was never committed, at a lines-per-writer nobody recorded. Within
+> that one protocol the reading holds: blur moved HWD 12% and a typeface sat 4.5x
+> away. As a floor for a run, 0.641 does not; see T23 above.
+>
 > ### Where the project stood before that, 2026-09-10
 >
 > | | Emuru | Eruku cfg 1.25 | Eruku cfg 1.0 | real |
@@ -279,7 +329,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T19 | Sweep Eruku's guidance scale | **done, negative** | cfg 1.0 / 1.25 / 2.0 -> 10.0% / 5.3% / 6.7%, all intervals overlapping. cfg 2.0 clearly worse (15% truncated). Even cfg 1.0's upper bound is below Emuru's 22.1% |
 | T20 | Several style lines as one reference | **done, thresholded** | 1 and 2 lines generate normally (0.89x, 0.85x of real width); 4 breaks Emuru (0.25x). The prefix outgrows what its stopping heuristic tolerates |
 | T21 | Calibrate the style metric | **done** | A real line blurred 0.8px scores 12.2% against 96.8% untouched. The metric measures sharpness |
-| T22 | HWD as the style metric | **code done, run pending** | 0.641 real / 0.721 blurred / 2.931 typeface, measured here. Needs one 300-sample run |
+| T22 | HWD as the style metric | **done, floor superseded by T23** | 0.641 real / 0.721 blurred / 2.931 typeface, measured here at an unrecorded lines-per-writer |
+| T23 | HWD's floor and ceiling measured inside every run | **code done, run pending** | real vs real 1.76 -> 0.54 from 1 to 10 lines per writer, 1.06 under a run's own sampling · per-writer HWD matches `HWDScore` to 2e-8 · local fake run end to end: generated = typeface = 3.04 (100%), real 1.16 · ruff clean · 384 passed |
 
 ## Waiting on Amri
 
@@ -298,8 +349,9 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 ## Open questions
 
 - **Python version.** Local is 3.13.2 with torch 2.13.0+cpu (the CPU-only wheel, 122 MB).
-  Colab's Python and torch versions are unknown; run `!python --version` and
-  `import torch; torch.__version__` in the first Colab session and pin to match.
+  Colab on 2026-09-11: Python 3.13.15, T4, torch 2.11.0+cu128, and transformers 4.57.6
+  after the install -- which therefore completed, `editdistance` included. Whether `hwd`
+  imports there is what cell 2 now checks.
 - **Architecture decided (2026-08-29): option C.** Start from a released zero-shot
   checkpoint (Emuru line) rather than training a generator from scratch. Amri approved.
   Consequences: no per-writer training; the generator produces variable-length lines, so
@@ -311,6 +363,19 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-11 — T23: HWD's floor and ceiling are measured inside every run.** Before
+  spending the hour on cell 6, checked whether its HWD would be comparable to the 0.641
+  floor. It would not: HWD compares per-writer means, and real lines against real lines
+  read 1.76 at one line per writer and 0.54 at ten -- 1.06 under a 300-sample run's own
+  sampling. 0.641 was measured at about seven or eight lines per writer by a script
+  nobody committed, and would have made a perfect generator look nearly a fifth of the
+  way to no hand at all. Every run now scores generated, real and typeface against one
+  shared reference of real lines that are neither targets nor style lines, with
+  intervals over writers; the per-writer computation matches `HWDScore` to 2e-8.
+  Generated images are saved before any metric runs, and an HWD failure no longer
+  takes CER with it. Also fixed cell 2, which imported `nib` inside the Colab kernel
+  and found the clone directory as a namespace package instead.
 
 - **2026-09-09 — T16 ran, and the project has its first measured result.** 300 lines
   in the hands of 94 unseen writers, T4, 53 minutes. FID 63.92 against a floor of
