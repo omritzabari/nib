@@ -51,6 +51,7 @@ from nib.data.pack import PackReader
 from nib.data.split import WriterSplit
 from nib.engine.metrics import bootstrap
 from nib.engine.metrics import cer as cer_mod
+from nib.engine.metrics import hwd as hwd_mod
 from nib.engine.metrics.fid import InceptionFeatures, compute_fid
 from nib.engine.metrics.writer import WriterRetrieval
 from nib.models.generator import (
@@ -499,6 +500,16 @@ def _measure(
         print("  -> the style partly carried.")
 
     print("\n" + "=" * 62)
+    print("HWD -- is it the right hand, by the measure the field uses")
+    # Our retrieval percentage collapses under a 0.8px blur that does not change
+    # whose handwriting it is, so it reports sharpness as much as style. HWD
+    # moves 12% under the same damage, and is what Emuru's and Eruku's own
+    # papers report -- so this figure can sit beside a published one.
+    hwd_value = hwd_mod.compute_hwd(generated, real, [t.writer_id for t in truths])
+    results["hwd"] = hwd_value
+    print("  " + hwd_mod.describe(hwd_value).replace("\n", "\n  "))
+
+    print("\n" + "=" * 62)
     print("CER -- is it readable as the intended text")
     from nib.engine.metrics.recogniser import TrOcrRecogniser
 
@@ -552,6 +563,8 @@ def _measure(
         f"  CER            {cer_ci.format(as_percent=True):>28}   "
         f"vs {real_cer_ci.value:.1%} for real"
     )
+    if hwd_value is not None:
+        print(f"  HWD            {hwd_value:8.3f}   vs {hwd_mod.REAL_FLOOR:.3f} for real")
     print(f"  CER gap        {(scored_cer.gap or 0):+8.1%}   generated minus real")
     print("\n  Two results whose intervals overlap cannot be told apart.")
     return results

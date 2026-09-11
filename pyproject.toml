@@ -56,6 +56,29 @@ models = [
     "scipy>=1.11",        # the matrix square root inside FID
 ]
 
+# The field's style metric, and the one ours failed to be: our writer retrieval
+# drops from 96.8% to 12.2% under a 0.8px blur that does not change whose
+# handwriting it is, while HWD moves from 0.641 to 0.721. It is also what
+# Emuru's and Eruku's own papers report, so a figure produced here can be set
+# beside a published one.
+#
+# Separate from `models` because it is a research package that imports every
+# score it owns at package level -- gudhi, matplotlib, tiktoken, sklearn -- and
+# depends on editdistance, which has no wheel for Python 3.13 on Windows. The
+# evaluation reports one metric fewer without it rather than failing.
+hwd = [
+    "hwd @ git+https://github.com/aimagelab/HWD.git",
+    "editdistance",
+    "gudhi",
+    "matplotlib",
+    "msgpack",
+    "protobuf",
+    "scikit-learn",
+    "six",
+    "tiktoken",
+    "torchmetrics",
+]
+
 track = ["wandb>=0.16"]
 api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4"]
