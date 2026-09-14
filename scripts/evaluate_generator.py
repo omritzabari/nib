@@ -234,8 +234,9 @@ def main(argv: list[str] | None = None) -> int:
         "--style-refs",
         type=int,
         default=1,
-        help="style samples per request. Emuru uses the first and ignores the rest; "
-        "the flag exists for generators that take several.",
+        help="style samples per request. With --candidates 1 they are joined side by "
+        "side into one image, which made Emuru worse at two lines (T27); with more "
+        "candidates they are a pool, one line per draw.",
     )
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default=None)
@@ -255,7 +256,29 @@ def main(argv: list[str] | None = None) -> int:
         help="Eruku's classifier-free guidance scale, default 1.25. It weights how "
         "hard the model is pushed toward its conditioning, and the first full run "
         "read like a dial set too far toward the text: CER improved by 7 points "
-        "against Emuru while writer retrieval fell from 22.1% to 5.3%.",
+        "against Emuru while writer retrieval fell from 22.1%% to 5.3%%.",
+    )
+    parser.add_argument(
+        "--candidates",
+        type=int,
+        default=1,
+        help="draws per line. Above 1, each draw uses ONE of the request's style lines "
+        "-- --style-refs becomes a pool to choose from, never an image to join -- and "
+        "draws stop at the first one the selector reads well enough. See "
+        "nib.models.candidates.",
+    )
+    parser.add_argument(
+        "--accept-cer",
+        type=float,
+        default=None,
+        help="selector CER at or below which a draw is kept without drawing again "
+        "(default: nib.models.candidates.ACCEPT_CER).",
+    )
+    parser.add_argument(
+        "--selector",
+        default="microsoft/trocr-small-handwritten",
+        help="recogniser that chooses between draws. Deliberately not the one that "
+        "measures CER, or the reported CER would reward the judge's own mistakes.",
     )
     parser.add_argument(
         "--allow-stale-references",
@@ -291,6 +314,8 @@ def main(argv: list[str] | None = None) -> int:
     suffix = "" if args.cfg_scale is None else f"_cfg{args.cfg_scale:g}"
     if args.style_refs != 1:
         suffix += f"_refs{args.style_refs}"
+    if args.candidates != 1:
+        suffix += f"_cand{args.candidates}"
     out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}{suffix}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
 
@@ -326,6 +351,20 @@ def main(argv: list[str] | None = None) -> int:
     generator = load_generator(
         args.generator, device, height, args.fake_failure_rate, args.cfg_scale
     )
+    if args.candidates > 1:
+        from nib.engine.metrics.recogniser import TrOcrRecogniser
+        from nib.models import candidates as candidates_mod
+
+        print(f"  selector {args.selector}")
+        # A longer reading limit than the judge's: a smeared draw can read as a
+        # long string of junk, and a reading cut short would score it too kindly.
+        selector = TrOcrRecogniser(model_name=args.selector, device=device, max_new_tokens=64)
+        generator = candidates_mod.CandidateGenerator(
+            generator,
+            selector,
+            candidates=args.candidates,
+            accept_cer=(candidates_mod.ACCEPT_CER if args.accept_cer is None else args.accept_cer),
+        )
     print(f"  {generator.name}, output height {generator.output_height}px")
 
     print("\ngenerating")
@@ -389,6 +428,10 @@ def main(argv: list[str] | None = None) -> int:
     empties = getattr(generator, "empties", None)
     if empties is not None:
         results_run |= {"retried_after_empty": empties.retried}
+    selection = getattr(generator, "selection", None)
+    if selection is not None:
+        print("\n" + selection.summary())
+        results_run |= {"selection": selection.as_dict()}
 
     for i in range(min(args.save_images, len(generated))):
         pair = np.full(

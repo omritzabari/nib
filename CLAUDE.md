@@ -1,7 +1,9 @@
 # Working agreement — nib
 
 Few-shot handwriting synthesis. Learn a writer's hand from 1-2 sample pages,
-generate new text in it. No per-user training.
+generate new text in it. **The goal is that it works on a new person's own pages.**
+Adapting to that person may include a short per-writer fine-tune, provided it fits
+a reasonable time per user (Amri, 2026-09-14) -- it is no longer ruled out.
 
 **Read `PROGRESS.md` first.** It holds the live task state and the exact next action.
 

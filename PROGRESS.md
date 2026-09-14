@@ -243,7 +243,10 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > ### The immediate next task
 >
-> **Recommended to Amri, awaiting his choice: generation with quality control.**
+> **Approved by Amri 2026-09-14, code done as T28: generation with quality
+> control. Run notebook cell 7c** -- a fake-generator check, then Emuru with
+> `--style-refs 4 --candidates 4`, saved to Drive by the cell. Compare identity and
+> FID with cell 6 (56.5% [50.9, 61.9], 67.70); CER falls but is partly flattered.
 > Use the page by *selection*, not concatenation. For each line to write: pick
 > style lines from the page in the length range that works (500-1100px), draw
 > several candidates, read each with TrOCR against the intended text, reject the
@@ -254,9 +257,27 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > included. Costs candidates x generation time: 11 s a line measured, so four
 > candidates is about 45 s a line before any batching.
 >
-> **Next after it, needs Amri's yes: per-writer fine-tuning** on page 1 of the
-> passage, measured on page 2. The largest untested lever on identity; training
-> code exists.
+> **Next: per-writer fine-tuning, approved by Amri 2026-09-14** "if it fits a
+> reasonable time per user"; `CLAUDE.md` updated to match. What reading Emuru's
+> own code established, none of it run yet:
+>
+> - `forward(img, input_ids, attention_mask)` is teacher-forced MSE on VAE latents.
+>   The VAE is frozen in `__init__`; T5 and two linear projections train.
+>   `train_T5.py` optimises all parameters with AdamW, lr 1e-4, batch 2. No LoRA.
+> - `generate()` joins `style_text + ' ' + gen_text` and continues the style
+>   image. Training images are single lines, so a two-line prefix is out of what
+>   it learned -- consistent with T27.
+> - So a writer's training data is simply their lines with transcriptions, and
+>   generation afterwards uses one of those lines as the prefix.
+> - Memory, arithmetic only: 2.88 GB of fp32 weights is about 0.7B parameters;
+>   full AdamW needs about 16 bytes a parameter, 11.5 GB before activations,
+>   against a T4's 15 GB. LoRA on T5's attention keeps optimiser state small and
+>   the per-writer result a few megabytes.
+>
+> Planned as T29, on CVL first so it does not wait for Amri's pages: for held-out
+> writers, fine-tune on part of their lines, generate the rest, and compare
+> identity with and without, same writers, same targets. Measure minutes per
+> writer. Then Amri's page 1 against his page 2.
 >
 > Closed: joining style lines side by side for Emuru. Open but lower: Eruku with
 > several lines (untested, 128 min a run).
@@ -525,6 +546,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T25 | Split a photographed page into lines | **done, one photo open** | 13 lines on 4 of 5 photos of Amri's page (angle, normal, shadow, WhatsApp) · `dim` fails upstream, `find_page` returns the whole frame -- strict xfail · 11 tests + 1 xfail |
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
+| T28 | Generation with quality control | **code done, run pending** | `nib.models.candidates`: one style line per draw, widths 500-1100px first, stop at the first draw TrOCR-small reads at CER <= 50%, else keep the best of 4 · 13 tests · `--candidates`, `--accept-cer`, `--selector` · notebook cell 7c |
+| T29 | Per-writer fine-tuning on CVL | **planned** | approved 2026-09-14; Emuru's training code read, nothing run |
 
 ## Waiting on Amri
 
