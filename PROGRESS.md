@@ -99,6 +99,35 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > typeface anchor cannot separate them. Retrieval had a chance level for exactly
 > this; HWD does not have one yet.
 >
+> ### Emuru carries more than half of a writer's identity -- T24's run, 2026-09-14
+>
+> Cell 6 again, same 300 requests, now with the identity block. 296 kept, 56.5
+> minutes of generation, saved to Drive (`results/eval_emuru_lines`, 296 images).
+>
+> | | gap to the other 92 writers | own writer nearest |
+> |---|---|---|
+> | generated | 1.05 [0.94, 1.15] | 47.3% [37.6, 57.0] |
+> | real | 1.85 [1.77, 1.94] | 97.8% [94.6, 100.0] |
+> | typeface | -0.01 [-0.08, 0.07] | 1.1% [0.0, 3.2] -- chance 1.1% |
+>
+> **Identity: the generated lines carry 56.5% [50.9, 61.9] of what real lines do.**
+> The typeface sits at zero as it must, so shared text does not create the gap.
+> Distance repeated the first run: HWD 2.03 [1.90, 2.16] against 0.86 real and
+> 2.99 typeface, 55% of the way. FID 67.70 [61.81, 73.59], retrieval 20.9%
+> [16.6, 25.7], CER 30.4% against 11.3% (gap +19.1), 20 of 296 truncated (6.8%),
+> 4 excluded.
+>
+> **This changes the reading of the project's central number.** Retrieval put
+> Emuru a quarter of the way from chance to real; identity puts it past half.
+> The gap is what T21 predicted -- retrieval collapses under blur and HWD does
+> not. Nearest-writer (47.3%, per writer over their 1-7 lines) and retrieval
+> (20.9%, per single line) are not the same question and are not compared.
+>
+> Two cautions. "Identity" is whatever sets one CVL writer's lines apart from
+> another's, and that includes their pen -- which a real user's photographs would
+> share too, but which is not the hand alone. And each run builds its own
+> reference, so 7b's figure is compared through its own real anchor, not raw.
+>
 > ### The goal, restated by Amri -- 2026-09-14
 >
 > **A system that works**: photograph one or two pages of your own handwriting,
@@ -140,10 +169,10 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > ### The immediate next task
 >
-> **Run `notebooks/colab_eval.ipynb` cells 1-6, then 7b.** Cell 5 must show an
-> identity block in which `generated` equals `typeface` with a gap near zero.
-> Cell 6 gives Emuru's identity figure for the first time; 7b gives it at two
-> style lines. Report the whole `HWD` blocks, identity lines included.
+> **Run cell 7b** (Emuru, two style lines). Cells 1-6 are done: cell 5 passed
+> (fake identity -0.5% [-5.5, 4.4]) and cell 6 gave identity 56.5% [50.9, 61.9].
+> If 7b's interval clears 61.9%, more evidence of the hand helps and fixing
+> Emuru's stopping rule for more lines is the next fidelity experiment.
 >
 > `analyse_run.py` does not read HWD yet; cell 9 needs that before it can compare
 > two runs on style. Cells that should not be run sit below a "kept for
@@ -405,7 +434,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T21 | Calibrate the style metric | **done** | A real line blurred 0.8px scores 12.2% against 96.8% untouched. The metric measures sharpness |
 | T22 | HWD as the style metric | **done, floor superseded by T23** | 0.641 real / 0.721 blurred / 2.931 typeface, measured here at an unrecorded lines-per-writer |
 | T23 | HWD's floor and ceiling measured inside every run | **done** | T4: Emuru HWD **2.00 [1.88, 2.13]** against real 0.86 and typeface 2.99 -- 53% of the way to no hand · fake check generated = typeface = 3.02 on GPU · real vs real 1.76 -> 0.54 from 1 to 10 lines per writer · per-writer HWD matches `HWDScore` to 2e-8 · 384 passed |
-| T24 | HWD identity anchor: own writer against every other | **code done, run pending** | local fake run end to end: generated = typeface, gap -0.00 [-0.10, 0.09], identity -0.2% [-6.0, 5.8] · real lines find their own writer nearest 97.7% over 44 writers, chance 2.3% · run cells save to Drive themselves; cell 7b adds two style lines · 388 passed |
+| T24 | HWD identity anchor: own writer against every other | **done** | T4: Emuru identity **56.5% [50.9, 61.9]** of real, own writer nearest 47.3% against chance 1.1% · fake on GPU -0.5% [-5.5, 4.4] · typeface gap -0.01 · run cells save to Drive themselves; cell 7b adds two style lines · 388 passed |
 | T25 | Split a photographed page into lines | **done, one photo open** | 13 lines on 4 of 5 photos of Amri's page (angle, normal, shadow, WhatsApp) · `dim` fails upstream, `find_page` returns the whole frame -- strict xfail · 11 tests + 1 xfail |
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 
