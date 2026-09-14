@@ -149,6 +149,16 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > two runs on style. Cells that should not be run sit below a "kept for
 > reference" divider, commented out.
 >
+> **In parallel, Amri:** copy out `configs/passages/english_page1.txt` and
+> `english_page2.txt` by hand, one sheet each, keeping every line break exactly, in
+> pen on plain paper with margins, without crossing out. Photograph each from above
+> in daylight and copy the original files -- not through WhatsApp, which
+> recompresses -- to `data/raw/personal/` as `passage_page1` and `passage_page2`.
+>
+> **Then, Claude:** split those photographs into lines (22 per page expected), pair
+> each line with its passage text, and run the first probe on Amri's own hand:
+> page 1 as style, page 2's lines generated and set beside his real page 2.
+>
 > ### HWD's floor was not a floor -- 2026-09-11, T23
 >
 > HWD is the distance between each writer's *mean* feature on either side, and a
@@ -341,6 +351,14 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > ### Known and open
 >
+> - `find_page` returns the whole frame for `data/raw/personal/dim.jpeg`, so the
+>   black cloth above the sheet reaches line segmentation as six false lines.
+> - Line segmentation loses lightly written strokes: the first "The" on Amri's
+>   sample has 63 pixels below the ink threshold. Hysteresis recovers it and brings
+>   the grid back with it (16 lines on the WhatsApp copy), so it is built and off.
+> - `data/raw/personal/page1_transcription.txt` is split by sentence, not by written
+>   line, and differs from the page ("wanderd", "Project"). The dictated passage
+>   replaces it.
 > - Emuru needs the style sample's *transcription*. A user photographing a page
 >   has transcribed nothing, so the product must read it first -- TrOCR is already
 >   here for that, at TrOCR's accuracy. This constrains the architecture.
@@ -388,6 +406,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T22 | HWD as the style metric | **done, floor superseded by T23** | 0.641 real / 0.721 blurred / 2.931 typeface, measured here at an unrecorded lines-per-writer |
 | T23 | HWD's floor and ceiling measured inside every run | **done** | T4: Emuru HWD **2.00 [1.88, 2.13]** against real 0.86 and typeface 2.99 -- 53% of the way to no hand · fake check generated = typeface = 3.02 on GPU · real vs real 1.76 -> 0.54 from 1 to 10 lines per writer · per-writer HWD matches `HWDScore` to 2e-8 · 384 passed |
 | T24 | HWD identity anchor: own writer against every other | **code done, run pending** | local fake run end to end: generated = typeface, gap -0.00 [-0.10, 0.09], identity -0.2% [-6.0, 5.8] · real lines find their own writer nearest 97.7% over 44 writers, chance 2.3% · run cells save to Drive themselves; cell 7b adds two style lines · 388 passed |
+| T25 | Split a photographed page into lines | **done, one photo open** | 13 lines on 4 of 5 photos of Amri's page (angle, normal, shadow, WhatsApp) · `dim` fails upstream, `find_page` returns the whole frame -- strict xfail · 11 tests + 1 xfail |
+| T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 
 ## Waiting on Amri
 
@@ -420,6 +440,23 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-14 — T25 and T26: from a photographed page to lines, and a page made to be
+  copied.** Amri's existing sample is one page photographed five ways -- 13 lines on
+  squared paper, with a transcription split by sentence rather than by written line.
+  Enough to build a splitter on; not enough to enrol from or test against. The
+  splitter assigns connected components whole to the line their centre sits in, so a
+  descender travels with its letter. Reaching 13 lines on four of the five photographs
+  took four measured fixes: a strict ink threshold (ink sits at 0 after normalisation,
+  surviving grid at 34-150); cutting straight runs out of the ink, so letters touching
+  grid lines are no longer dropped as ruling; a border band against desk strips and
+  dark page edges; and three components minimum per line, against punch holes.
+  Hysteresis, to recover a lightly written "The", was built, measured and left off --
+  it brings the grid back. The fifth photograph fails upstream in `find_page`, and its
+  test is a strict xfail that says so. The passage is two pages of ordinary prose,
+  each holding all 79 characters, every lowercase letter at least three times, every
+  line within 44 characters; page 1 enrols, page 2 is held back so the system's version
+  of it can be set beside Amri's.
 
 - **2026-09-14 — T24: HWD can tell "not this writer" from "not real handwriting".**
   Every set is also measured against every other writer's reference, at no extra
