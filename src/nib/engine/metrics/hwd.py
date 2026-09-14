@@ -50,6 +50,18 @@ Generated and real differ in nothing but being generated, so neither the count
 per writer nor the content can tilt the comparison between them, and the
 typeface gives the figure its far end on the same terms.
 
+**Distance is not identity.** The typeface anchors *no handwriting*, not
+*someone else's handwriting*. A set can sit far from real because it does not
+look like real handwriting, or because it does not look like this writer, and
+the three figures above cannot say which. So every set is also measured against
+every *other* writer's reference. The gap between the two -- how much farther
+everyone else is than the right writer -- is zero for output that is nobody's
+hand in particular, however blurred or however clean, and positive for output
+that is closer to its own writer. The generated gap as a share of the real
+lines' gap is the identity figure: 0 for none, 1 for as much as the writer's own
+lines carry. Emuru's first measured run, 53% of the way to a typeface on
+distance, predates it.
+
 **Installing it.** `hwd` is a research package that imports every score it owns
 at package level, so it drags in gudhi, matplotlib, tiktoken and more; and it
 depends on `editdistance`, which has no wheel for Python 3.13 on Windows. It is
@@ -63,7 +75,7 @@ from __future__ import annotations
 import random
 import shutil
 import tempfile
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -155,45 +167,84 @@ def writer_means(features: np.ndarray, authors: Sequence[str]) -> dict[str, np.n
     return {writer: rows[labels == writer].mean(axis=0) for writer in sorted(set(labels.tolist()))}
 
 
+def _writer_interval(
+    statistic: Callable[[np.ndarray], float], count: int, seed: int
+) -> bootstrap.Interval:
+    """Resampling writers, because every figure here is an average over writers.
+    One writer has no spread to resample, so it gets a point."""
+    if count < 2:
+        value = statistic(np.arange(count))
+        return bootstrap.Interval(value, value, value, resamples=0)
+    return bootstrap.bootstrap_statistic(statistic, count, seed=seed)
+
+
 @dataclass(frozen=True)
 class Distance:
-    """One set's HWD, kept per writer so the figure can carry an interval."""
+    """One set's HWD, kept per writer so every figure can carry an interval.
+
+    ``per_writer`` is each writer's distance to their own reference -- the terms
+    HWD averages. ``wrong`` is the same writer's mean distance to every *other*
+    writer's reference, and ``nearest_is_right`` whether their own reference was
+    the closest of all. Those two say whether the set looks like its writer in
+    particular, rather than merely like handwriting.
+    """
 
     writers: list[str]
     per_writer: np.ndarray
+    wrong: np.ndarray
+    nearest_is_right: np.ndarray
 
     @property
     def value(self) -> float:
         return float(np.mean(self.per_writer))
 
+    @property
+    def gap(self) -> np.ndarray:
+        """Per writer, how much farther everyone else's reference is than their own."""
+        return np.asarray(self.wrong, np.float64) - np.asarray(self.per_writer, np.float64)
+
     def interval(self, seed: int = 1337) -> bootstrap.Interval:
-        """Resampling writers, because HWD is an average over writers: the spread
-        is how far the figure moves when a different set of people is drawn."""
+        """How far HWD moves when a different set of people is drawn."""
         values = np.asarray(self.per_writer, dtype=np.float64)
-        if len(values) < 2:
-            return bootstrap.Interval(self.value, self.value, self.value, resamples=0)
-        return bootstrap.bootstrap_statistic(
-            lambda indices: float(values[indices].mean()), len(values), seed=seed
-        )
+        return _writer_interval(lambda indices: float(values[indices].mean()), len(values), seed)
+
+    def gap_interval(self, seed: int = 1337) -> bootstrap.Interval:
+        gap = self.gap
+        return _writer_interval(lambda indices: float(gap[indices].mean()), len(gap), seed)
+
+    def nearest_interval(self, seed: int = 1337) -> bootstrap.Interval:
+        hits = np.asarray(self.nearest_is_right, dtype=np.float64)
+        return _writer_interval(lambda indices: float(hits[indices].mean()), len(hits), seed)
 
 
 def distance(side: Mapping[str, np.ndarray], reference: Mapping[str, np.ndarray]) -> Distance:
-    """Euclidean distance between each writer's two means -- the terms HWD averages."""
+    """Each writer's distance to their own reference, and to everyone else's.
+
+    The own-writer distances are the terms HWD averages. The rest cost nothing
+    extra -- every mean is already computed -- and are what separates "not this
+    writer" from "not real handwriting".
+    """
     writers = sorted(side)
     absent = [writer for writer in writers if writer not in reference]
     if absent:
         raise ValueError(f"{len(absent)} writers have no reference lines, e.g. {absent[:3]}")
-    per_writer = np.array(
-        [
-            float(
-                np.linalg.norm(
-                    np.asarray(side[w], np.float64) - np.asarray(reference[w], np.float64)
-                )
-            )
-            for w in writers
-        ]
+
+    candidates = sorted(reference)
+    own = np.array([candidates.index(writer) for writer in writers])
+    sides = np.stack([np.asarray(side[writer], np.float64) for writer in writers])
+    references = np.stack([np.asarray(reference[writer], np.float64) for writer in candidates])
+    # Rows are this set's writers, columns every writer in the reference.
+    matrix = np.linalg.norm(sides[:, None, :] - references[None, :, :], axis=2)
+
+    right = matrix[np.arange(len(writers)), own]
+    others = len(candidates) - 1
+    wrong = (matrix.sum(axis=1) - right) / others if others else np.full(len(writers), np.nan)
+    return Distance(
+        writers=writers,
+        per_writer=right,
+        wrong=wrong,
+        nearest_is_right=matrix.argmin(axis=1) == own,
     )
-    return Distance(writers=writers, per_writer=per_writer)
 
 
 @dataclass(frozen=True)
@@ -204,6 +255,8 @@ class HwdResult:
     reference_lines: int
     scored: int
     withheld_samples: int
+    candidates: int
+    """Writers in the reference: chance for nearest-is-right is one in this many."""
 
     @property
     def position(self) -> float:
@@ -212,6 +265,42 @@ class HwdResult:
         if span <= 0:
             return float("nan")
         return (self.generated.value - self.real.value) / span
+
+    @property
+    def chance(self) -> float:
+        return 1.0 / self.candidates if self.candidates else float("nan")
+
+    @property
+    def identity(self) -> float:
+        """The generated lines' identity gap as a share of the real lines'.
+
+        0: no closer to their own writer than to anyone else -- handwriting, but
+        nobody's in particular. 1: as distinctly their writer's as that writer's
+        own lines. Both distances come from the same set, so output cannot score
+        here merely by being blurred, clean, or far from everyone.
+        """
+        generated, real = self._gaps()
+        return _identity(generated, real, np.arange(len(real)))
+
+    def identity_interval(self, seed: int = 1337) -> bootstrap.Interval:
+        """Generated and real resampled together: the two gaps belong to the same
+        people, and drawing them apart would add noise the comparison lacks."""
+        generated, real = self._gaps()
+        return _writer_interval(
+            lambda indices: _identity(generated, real, indices), len(real), seed
+        )
+
+    def _gaps(self) -> tuple[np.ndarray, np.ndarray]:
+        if self.generated.writers != self.real.writers:
+            raise ValueError("generated and real were scored over different writers")
+        return self.generated.gap, self.real.gap
+
+
+def _identity(generated_gap: np.ndarray, real_gap: np.ndarray, indices: np.ndarray) -> float:
+    real = float(np.mean(real_gap[indices]))
+    if real <= 0:
+        return float("nan")
+    return float(np.mean(generated_gap[indices])) / real
 
 
 def measure(
@@ -257,6 +346,7 @@ def measure(
         reference_lines=len(reference_images),
         scored=len(keep),
         withheld_samples=len(writer_ids) - len(keep),
+        candidates=len(reference),
     )
 
 
@@ -318,4 +408,21 @@ def describe(result: HwdResult | None) -> str:
             f"withheld   {result.withheld_samples} samples whose writers have fewer than "
             f"{REFERENCE_MINIMUM} spare lines, from all three sets alike"
         )
+    lines += [
+        "",
+        f"identity   its own writer against the other {result.candidates - 1}",
+        f"           {'gap to the others':<26}own writer nearest (chance {result.chance:.1%})",
+    ]
+    for name, side in (
+        ("generated", result.generated),
+        ("real", result.real),
+        ("typeface", result.typeface),
+    ):
+        gap = side.gap_interval().format()
+        nearest = side.nearest_interval().format(as_percent=True)
+        lines.append(f"{name:<10} {gap:<26}{nearest}")
+    lines.append(
+        f"-> the generated lines carry {result.identity_interval().format(as_percent=True)} "
+        "of the writer identity real lines do"
+    )
     return "\n".join(lines)

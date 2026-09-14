@@ -585,6 +585,12 @@ def _measure(
             "hwd_generated": hwd_result.generated.per_writer,
             "hwd_real": hwd_result.real.per_writer,
             "hwd_typeface": hwd_result.typeface.per_writer,
+            "hwd_generated_wrong": hwd_result.generated.wrong,
+            "hwd_real_wrong": hwd_result.real.wrong,
+            "hwd_typeface_wrong": hwd_result.typeface.wrong,
+            "hwd_generated_nearest": hwd_result.generated.nearest_is_right,
+            "hwd_real_nearest": hwd_result.real.nearest_is_right,
+            "hwd_typeface_nearest": hwd_result.typeface.nearest_is_right,
             "hwd_reference_keys": hwd_reference_keys,
         }
     _save_analysis(
@@ -615,6 +621,10 @@ def _measure(
             f"  HWD            {hwd_result.generated.interval().format():>28}   "
             f"vs {hwd_result.real.value:.2f} for real, "
             f"{hwd_result.typeface.value:.2f} for a typeface"
+        )
+        print(
+            f"  HWD identity   {hwd_result.identity_interval().format(as_percent=True):>28}   "
+            "of what real lines carry"
         )
     print(f"  CER gap        {(scored_cer.gap or 0):+8.1%}   generated minus real")
     print("\n  Two results whose intervals overlap cannot be told apart.")
@@ -704,6 +714,7 @@ def _hwd_fields(result) -> dict:
         return {"hwd": None}
     generated_ci = result.generated.interval()
     real_ci = result.real.interval()
+    identity_ci = result.identity_interval()
     return {
         "hwd": result.generated.value,
         "hwd_ci": [generated_ci.low, generated_ci.high],
@@ -711,6 +722,14 @@ def _hwd_fields(result) -> dict:
         "hwd_real_ci": [real_ci.low, real_ci.high],
         "hwd_typeface": result.typeface.value,
         "hwd_position": result.position,
+        "hwd_identity": result.identity,
+        "hwd_identity_ci": [identity_ci.low, identity_ci.high],
+        "hwd_gap_generated": float(np.mean(result.generated.gap)),
+        "hwd_gap_real": float(np.mean(result.real.gap)),
+        "hwd_gap_typeface": float(np.mean(result.typeface.gap)),
+        "hwd_nearest_generated": float(np.mean(result.generated.nearest_is_right)),
+        "hwd_nearest_real": float(np.mean(result.real.nearest_is_right)),
+        "hwd_nearest_chance": result.chance,
         "hwd_reference_lines": result.reference_lines,
         "hwd_scored": result.scored,
         "hwd_withheld": result.withheld_samples,

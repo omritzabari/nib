@@ -99,27 +99,55 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > typeface anchor cannot separate them. Retrieval had a chance level for exactly
 > this; HWD does not have one yet.
 >
+> ### The goal, restated by Amri -- 2026-09-14
+>
+> **A system that works**: photograph one or two pages of your own handwriting,
+> type any text, get it back in your hand. Not a portfolio piece and not a paper.
+> New approaches are welcome; the measure is whether it works in the end. GPU is
+> not a constraint -- Amri will buy more Colab units when needed.
+>
+> Two things follow. The product will be given a **page**, 20 to 30 lines, while
+> every evaluation so far gave the model **one line** -- so the number of style
+> lines is the main experimental axis, not a detail. And the VM that produced HWD
+> 2.00 was reclaimed before cell 7 ran: the images are gone and only the printed
+> figures above survive.
+>
+> ### The plan
+>
+> 1. **Know where we stand.** T24's identity anchor, then one GPU session:
+>    notebook cells 1-6 (Emuru, one style line) and 7b (two lines). Every run
+>    cell now saves to Drive itself. Pinning the Emuru and Eruku Hugging Face
+>    revisions first would keep every experiment on the same model -- the Colab
+>    run warned their remote code was downloaded fresh.
+> 2. **Amri's own handwriting.** First pipeline component: split a photographed
+>    page into lines. Then a probe -- his lines as style, new sentences -- and a
+>    small blind test.
+> 3. **Fidelity, one experiment at a time, cheapest first**, each closed if the
+>    identity figure does not move outside its interval: pick the most
+>    representative style line; more style lines (fix Emuru's stopping rule;
+>    Eruku takes any width and is untested at four or more); best-of-N against
+>    the writer's other lines; per-writer fine-tuning, **which needs Amri to
+>    reopen "no per-user training"**; another model only if those fail.
+> 4. **Finish the pipeline**: transcribe the style lines or use a dictated
+>    passage, generate line by line, lay out a page, output, interface.
+>
+> Deprioritised: retraining the writer-retrieval embedding. The identity anchor
+> and a blind test cover what it was for.
+>
+> **Awaiting Amri:** (a) per-writer fine-tuning as an experiment, yes or no;
+> (b) the definition of "works" -- proposed: people who know his handwriting
+> cannot pick his real line out of a real/generated pair much better than 50%.
+>
 > ### The immediate next task
 >
-> **Confirm cell 7 copied `eval_emuru_lines` to Drive** -- its `generated/` should
-> hold 295 images. Cell 6 saves only to the VM's disk, and Colab reclaims VMs.
+> **Run `notebooks/colab_eval.ipynb` cells 1-6, then 7b.** Cell 5 must show an
+> identity block in which `generated` equals `typeface` with a gap near zero.
+> Cell 6 gives Emuru's identity figure for the first time; 7b gives it at two
+> style lines. Report the whole `HWD` blocks, identity lines included.
 >
-> **Then, proposed and awaiting Amri: a wrong-writer anchor for HWD, no GPU.**
-> Score the saved generated lines and the real target lines against *other*
-> writers' reference lines as well as their own. For the generated set, the gap
-> between wrong-writer and right-writer HWD is the identity signal, with an
-> interval; the same gap for the real lines is what a perfect copy would show.
-> Needs `results/eval_emuru_lines` from Drive placed in `outputs/`, and the local
-> pack.
->
-> Cell 8 adds Eruku for the comparison, three hours -- worth it because the
-> Emuru-against-Eruku result of 2026-09-10 was decided by the metric that turned
-> out to measure sharpness, and Eruku's output may simply be softer.
 > `analyse_run.py` does not read HWD yet; cell 9 needs that before it can compare
-> two runs on style.
->
-> The notebook was rebuilt on 2026-09-11 around this run. Cells that should not
-> be run are below a "kept for reference" divider and commented out.
+> two runs on style. Cells that should not be run sit below a "kept for
+> reference" divider, commented out.
 >
 > ### HWD's floor was not a floor -- 2026-09-11, T23
 >
@@ -359,6 +387,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T21 | Calibrate the style metric | **done** | A real line blurred 0.8px scores 12.2% against 96.8% untouched. The metric measures sharpness |
 | T22 | HWD as the style metric | **done, floor superseded by T23** | 0.641 real / 0.721 blurred / 2.931 typeface, measured here at an unrecorded lines-per-writer |
 | T23 | HWD's floor and ceiling measured inside every run | **done** | T4: Emuru HWD **2.00 [1.88, 2.13]** against real 0.86 and typeface 2.99 -- 53% of the way to no hand · fake check generated = typeface = 3.02 on GPU · real vs real 1.76 -> 0.54 from 1 to 10 lines per writer · per-writer HWD matches `HWDScore` to 2e-8 · 384 passed |
+| T24 | HWD identity anchor: own writer against every other | **code done, run pending** | local fake run end to end: generated = typeface, gap -0.00 [-0.10, 0.09], identity -0.2% [-6.0, 5.8] · real lines find their own writer nearest 97.7% over 44 writers, chance 2.3% · run cells save to Drive themselves; cell 7b adds two style lines · 388 passed |
 
 ## Waiting on Amri
 
@@ -391,6 +420,21 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-14 — T24: HWD can tell "not this writer" from "not real handwriting".**
+  Every set is also measured against every other writer's reference, at no extra
+  network pass. The gap -- how much farther the others are than the right writer -- is
+  zero for output that is nobody's hand however clean or blurred, and the generated
+  gap as a share of the real lines' is the identity figure, with an interval over
+  writers. Locally the fake generator scored -0.2% [-6.0%, 5.8%], and real lines found
+  their own writer nearest 97.7% of the time against a chance of 2.3%, so the anchor
+  has range to measure in. Amri restated the goal the same day -- a system that works
+  on his own pages, not a portfolio piece -- which makes the number of style lines the
+  main axis: the product brings a page, the evaluation gave one line. The notebook
+  gained cell 7b (two lines) and saves each run to Drive itself, after the VM holding
+  the first HWD run was reclaimed unsaved. Also learned: NotebookEdit addresses cells
+  by position, so an insert shifts every later edit onto the wrong cell; the notebook
+  was rebuilt from HEAD by a script that checks each cell's heading before replacing.
 
 - **2026-09-14 — the project's first trustworthy style figure.** Emuru on 300 held-out
   lines, T4: HWD 2.00 [1.88, 2.13] against 0.86 for the real target lines and 2.99 for

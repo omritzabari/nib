@@ -103,14 +103,36 @@ def test_hwd_is_the_euclidean_distance_between_means_averaged_over_writers():
     assert result.value == pytest.approx(3.0)
 
 
+def test_every_writer_is_also_measured_against_every_other_writers_reference():
+    side = {"a": np.array([0.0, 0.0]), "b": np.array([10.0, 0.0])}
+    reference = {"a": np.array([0.0, 0.0]), "b": np.array([10.0, 0.0]), "c": np.array([0.0, 10.0])}
+
+    result = hwd.distance(side, reference)
+
+    np.testing.assert_allclose(result.per_writer, [0.0, 0.0])
+    np.testing.assert_allclose(result.wrong, [10.0, (10.0 + math.hypot(10.0, 10.0)) / 2])
+    np.testing.assert_allclose(result.gap, result.wrong)
+    assert result.nearest_is_right.tolist() == [True, True]
+
+
 def test_a_writer_the_reference_does_not_hold_is_an_error():
     with pytest.raises(ValueError, match="no reference lines"):
         hwd.distance({"a": np.zeros(2)}, {"b": np.zeros(2)})
 
 
+def _distance(per_writer: list[float]) -> hwd.Distance:
+    values = np.array(per_writer)
+    return hwd.Distance(
+        writers=[str(i) for i in range(len(values))],
+        per_writer=values,
+        wrong=values + 1.0,
+        nearest_is_right=np.ones(len(values), dtype=bool),
+    )
+
+
 def test_the_interval_resamples_writers_and_brackets_the_figure():
-    spread = hwd.Distance(writers=list("abcd"), per_writer=np.array([0.5, 0.7, 0.9, 1.1]))
-    flat = hwd.Distance(writers=list("abc"), per_writer=np.array([0.8, 0.8, 0.8]))
+    spread = _distance([0.5, 0.7, 0.9, 1.1])
+    flat = _distance([0.8, 0.8, 0.8])
 
     interval = spread.interval()
     assert interval.low <= spread.value <= interval.high
@@ -170,7 +192,64 @@ def test_without_the_package_it_reports_not_measured(monkeypatch):
 
 
 def test_position_is_undefined_when_the_typeface_does_not_score_worse_than_real():
-    same = hwd.Distance(writers=["a"], per_writer=np.array([1.0]))
-    result = hwd.HwdResult(same, same, same, reference_lines=1, scored=1, withheld_samples=0)
+    same = _distance([1.0])
+    result = hwd.HwdResult(
+        same, same, same, reference_lines=1, scored=1, withheld_samples=0, candidates=1
+    )
 
     assert math.isnan(result.position)
+
+
+# ---------------------------------------------------------------------------
+# Identity: the right writer against everyone else
+# ---------------------------------------------------------------------------
+
+
+def test_identity_is_one_for_the_writers_own_hand_and_zero_for_nobodys():
+    """A copy of the real lines carries all the identity they do. Output that is
+    the same for every writer -- the typeface is -- is exactly as far from the
+    right writer as from the wrong one on average, so it carries none."""
+    ids = ["a", "b"]
+    real = [_line(100), _line(60)]
+    nobody = [_line(250), _line(250)]
+    extractor = TwoNumberExtractor()
+
+    copy = hwd.measure(real, real, nobody, ids, real, ids, extractor=extractor)
+    generic = hwd.measure(nobody, real, nobody, ids, real, ids, extractor=extractor)
+
+    assert copy.identity == pytest.approx(1.0)
+    assert generic.identity == pytest.approx(0.0, abs=1e-12)
+    assert float(np.mean(copy.typeface.gap)) == pytest.approx(0.0, abs=1e-12)
+    assert copy.real.nearest_is_right.all()
+    assert copy.chance == pytest.approx(0.5)
+    assert "writer identity" in hwd.describe(copy)
+
+
+def test_identity_is_undefined_when_real_lines_are_not_closer_to_their_own_writer():
+    flat = hwd.Distance(
+        writers=["a", "b"],
+        per_writer=np.array([1.0, 1.0]),
+        wrong=np.array([1.0, 1.0]),
+        nearest_is_right=np.array([False, False]),
+    )
+    result = hwd.HwdResult(
+        flat, flat, flat, reference_lines=2, scored=2, withheld_samples=0, candidates=2
+    )
+
+    assert math.isnan(result.identity)
+
+
+def test_identity_refuses_sets_scored_over_different_writers():
+    first = _distance([1.0, 2.0])
+    other = hwd.Distance(
+        writers=["x", "y"],
+        per_writer=first.per_writer,
+        wrong=first.wrong,
+        nearest_is_right=first.nearest_is_right,
+    )
+    result = hwd.HwdResult(
+        first, other, first, reference_lines=2, scored=2, withheld_samples=0, candidates=2
+    )
+
+    with pytest.raises(ValueError, match="different writers"):
+        _ = result.identity
