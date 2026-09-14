@@ -157,6 +157,40 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > lines' worth of prefix it loses where the style ends -- writing style words, or
 > skipping target words. The saved samples decide it without a GPU.
 >
+> ### Quality control works -- T28's run, 2026-09-14
+>
+> Cell 7c: 300 requests, a pool of four style lines each, up to four draws, the
+> first one TrOCR-small reads at CER <= 50% kept. 406 draws for 300 requests
+> (1.35 each), 234 accepted first time, 7 kept as the best of an unreadable set.
+> 63.2 minutes of generation against 56.5 for cell 6. Saved to Drive,
+> `results/eval_emuru_lines_refs4_cand4`. The fake check before it: 61 draws for
+> 60 requests, generated = typeface, identity -0.5%.
+>
+> | | cell 6, one draw | 7c, best of 4 | |
+> |---|---|---|---|
+> | CER | 30.4% [25.7, 35.2] | **12.5% [10.5, 14.7]** | separate |
+> | CER gap to real | +19.1 | **+1.8** | |
+> | FID | 67.70 [61.81, 73.59] | **55.87 [52.60, 59.13]** | separate |
+> | HWD identity | 56.5% [50.9, 61.9] | **65.0% [60.3, 69.6]** | overlap, barely |
+> | own writer nearest | 47.3% [37.6, 57.0] | 58.8% [48.2, 69.4] | overlap |
+> | HWD distance | 2.03 [1.90, 2.16] | 1.94 [1.84, 2.05] | overlap |
+> | writer top-1 | 20.9% | 19.3% | overlap |
+> | excluded / truncated | 4 / 6.8% | **0 / 0.3%** | |
+>
+> **The output now reads nearly as well as real handwriting**: a CER gap of 1.8
+> points, where it was 19.1. CER is partly flattered by selection -- a different
+> recogniser chose, but both are TrOCR -- so the clean evidence is **FID, which
+> separates**, and which no recogniser touches. Identity rose by 8.5 points to
+> 65.0%, where the removal bound had put 60-67%, but its interval still touches
+> cell 6's; not yet a finding on the conservative test.
+>
+> Not like for like in two ways, both stated in the run: `--style-refs 4` draws
+> different targets from the same seed, and consuming four style lines a request
+> left 85 writers with enough spare reference lines (14 samples withheld) against
+> 93. Real anchors agree (identity gap 1.86 against 1.85). And two changes are
+> confounded -- choosing the style line by width, and re-drawing -- which matters
+> for understanding and not for the product, which gets both.
+>
 > ### What the samples show -- no GPU, 2026-09-14
 >
 > Both runs downloaded from Drive to `outputs/`. Each run's requests were rebuilt
@@ -243,10 +277,14 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > ### The immediate next task
 >
-> **Approved by Amri 2026-09-14, code done as T28: generation with quality
-> control. Run notebook cell 7c** -- a fake-generator check, then Emuru with
-> `--style-refs 4 --candidates 4`, saved to Drive by the cell. Compare identity and
-> FID with cell 6 (56.5% [50.9, 61.9], 67.70); CER falls but is partly flattered.
+> **Done: generation with quality control (T28)** -- CER gap +19.1 -> +1.8, FID
+> 67.70 -> 55.87 (separate), identity 56.5% -> 65.0% (intervals touch). It is the
+> generation step from here on.
+>
+> **Small, no GPU:** Amri downloads `MyDrive/nib/results/eval_emuru_lines_refs4_cand4`
+> into `outputs/`. Then a paired comparison of identity with cell 6 over the
+> writers both runs scored -- the difference resampled per writer, which is a
+> sharper test than two overlapping intervals -- and the samples by eye.
 > Use the page by *selection*, not concatenation. For each line to write: pick
 > style lines from the page in the length range that works (500-1100px), draw
 > several candidates, read each with TrOCR against the intended text, reject the
@@ -559,7 +597,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T25 | Split a photographed page into lines | **done, one photo open** | 13 lines on 4 of 5 photos of Amri's page (angle, normal, shadow, WhatsApp) · `dim` fails upstream, `find_page` returns the whole frame -- strict xfail · 11 tests + 1 xfail |
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
-| T28 | Generation with quality control | **code done, run pending** | `nib.models.candidates`: one style line per draw, widths 500-1100px first, stop at the first draw TrOCR-small reads at CER <= 50%, else keep the best of 4 · 13 tests · `--candidates`, `--accept-cer`, `--selector` · notebook cell 7c |
+| T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5% -- touching · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
 | T29 | Per-writer fine-tuning on CVL | **planned** | approved 2026-09-14; Emuru's training code read, nothing run |
 
 ## Waiting on Amri
@@ -593,6 +631,15 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-14 — T28: re-drawing the broken lines makes Emuru read like real
+  handwriting.** Up to four draws a line, each from one style line chosen by width,
+  the first readable one kept: 1.35 draws a line on average, 12% more generation time.
+  CER 12.5% against 10.7% for the real lines, a gap of 1.8 points where one draw left
+  19.1; FID 55.87 against 67.70, intervals separate; identity 65.0% against 56.5%,
+  intervals touching. No request was lost, and truncation fell from 6.8% to 0.3% --
+  a line that runs to its budget reads badly and gets re-drawn. The first attempt at
+  the cell died on its own harness check, 40 samples against FID's minimum of 50.
 
 - **2026-09-14 — T24 and T27 measured: one line carries 56.5% of the identity, two
   carry less.** Cell 6 gave Emuru's first identity figure, 56.5% [50.9%, 61.9%] of what
