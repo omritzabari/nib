@@ -71,18 +71,46 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > to write, three re-draws failed, and it was excluded with its ground truth
 > rather than taking the run down. Four others were saved by a retry.
 >
+> ### The first trustworthy style figure -- Emuru, T23's run
+>
+> `notebooks/colab_eval.ipynb` cells 1 to 6 on a T4: 300 requests, 295 kept, 53.9
+> minutes of generation (0.09 lines/s, the rate of 2026-09-09).
+>
+> | | generated | real | typeface |
+> |---|---|---|---|
+> | **HWD** | **2.00 [1.88, 2.13]** | 0.86 [0.81, 0.91] | 2.99 [2.91, 3.06] |
+>
+> **Emuru's output sits 53% of the way from real handwriting to a typeface**, and
+> its interval is nowhere near the real one. Reference: 1,104 real lines over 93
+> writers, none a target or a style line.
+>
+> The rest: FID 66.72 [60.56, 72.88] · writer top-1 20.3% [15.9, 25.1] · CER 28.1%
+> [23.9, 32.4] against 11.3% real, gap +16.8 · 13 of 295 truncated (4.4%) · 5
+> excluded as empty, 1 saved by a retry. The earlier runs' FID (63.92, 69.46) and
+> retrieval (20.5%, 22.1%) all fall inside this run's intervals. Truncation halved
+> against the 8.7% of 2026-09-10 on the same requests; not explained.
+>
+> The harness check before it (cell 5, fake generator, 120 samples) printed
+> generated = typeface = 3.02 at 100% and real 1.10 -- HWD's first run on a GPU.
+>
+> **What 53% does not say.** The typeface is the far end for *no handwriting at
+> all*, not for *someone else's handwriting*. HWD 2.00 mixes two distances -- not
+> looking like real handwriting, and not looking like this writer -- and the
+> typeface anchor cannot separate them. Retrieval had a chance level for exactly
+> this; HWD does not have one yet.
+>
 > ### The immediate next task
 >
-> **Run `notebooks/colab_eval.ipynb`, cells 1 to 7** -- cell 1 again on a VM that
-> already cloned, so it pulls T23. That gives the project's first trustworthy
-> style figure: Emuru's HWD read against the real-handwriting and typeface figures
-> **measured in the same run**, not against 0.641. About an hour.
+> **Confirm cell 7 copied `eval_emuru_lines` to Drive** -- its `generated/` should
+> hold 295 images. Cell 6 saves only to the VM's disk, and Colab reclaims VMs.
 >
-> Three things to see on the way. Cell 2 must print `hwd available: True`. Cell 5
-> (the fake generator) must print an HWD block whose `generated` equals `typeface`
-> at 100% -- for that generator they are the same images -- and it is HWD's first
-> run on a GPU machine. Cell 6 writes every generated image to `generated/`
-> before any metric runs.
+> **Then, proposed and awaiting Amri: a wrong-writer anchor for HWD, no GPU.**
+> Score the saved generated lines and the real target lines against *other*
+> writers' reference lines as well as their own. For the generated set, the gap
+> between wrong-writer and right-writer HWD is the identity signal, with an
+> interval; the same gap for the real lines is what a perfect copy would show.
+> Needs `results/eval_emuru_lines` from Drive placed in `outputs/`, and the local
+> pack.
 >
 > Cell 8 adds Eruku for the comparison, three hours -- worth it because the
 > Emuru-against-Eruku result of 2026-09-10 was decided by the metric that turned
@@ -330,7 +358,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T20 | Several style lines as one reference | **done, thresholded** | 1 and 2 lines generate normally (0.89x, 0.85x of real width); 4 breaks Emuru (0.25x). The prefix outgrows what its stopping heuristic tolerates |
 | T21 | Calibrate the style metric | **done** | A real line blurred 0.8px scores 12.2% against 96.8% untouched. The metric measures sharpness |
 | T22 | HWD as the style metric | **done, floor superseded by T23** | 0.641 real / 0.721 blurred / 2.931 typeface, measured here at an unrecorded lines-per-writer |
-| T23 | HWD's floor and ceiling measured inside every run | **code done, run pending** | real vs real 1.76 -> 0.54 from 1 to 10 lines per writer, 1.06 under a run's own sampling · per-writer HWD matches `HWDScore` to 2e-8 · local fake run end to end: generated = typeface = 3.04 (100%), real 1.16 · ruff clean · 384 passed |
+| T23 | HWD's floor and ceiling measured inside every run | **done** | T4: Emuru HWD **2.00 [1.88, 2.13]** against real 0.86 and typeface 2.99 -- 53% of the way to no hand · fake check generated = typeface = 3.02 on GPU · real vs real 1.76 -> 0.54 from 1 to 10 lines per writer · per-writer HWD matches `HWDScore` to 2e-8 · 384 passed |
 
 ## Waiting on Amri
 
@@ -363,6 +391,16 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-14 — the project's first trustworthy style figure.** Emuru on 300 held-out
+  lines, T4: HWD 2.00 [1.88, 2.13] against 0.86 for the real target lines and 2.99 for
+  the same texts in a typeface, all three against one shared reference in the same
+  run -- 53% of the way from real handwriting to none. Against the old 0.641 constant
+  it would have read 59%: the in-run floor matters most for a model close to real,
+  which Emuru is not. FID and retrieval land where the earlier runs did. What the
+  figure cannot yet say is how much of the distance is "not this writer" rather than
+  "not real handwriting"; that needs a wrong-writer anchor, which the saved images
+  allow without a GPU.
 
 - **2026-09-11 — T23: HWD's floor and ceiling are measured inside every run.** Before
   spending the hour on cell 6, checked whether its HWD would be comparable to the 0.641
