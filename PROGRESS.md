@@ -157,6 +157,51 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > lines' worth of prefix it loses where the style ends -- writing style words, or
 > skipping target words. The saved samples decide it without a GPU.
 >
+> ### What the samples show -- no GPU, 2026-09-14
+>
+> Both runs downloaded from Drive to `outputs/`. Each run's requests were rebuilt
+> from the seed (296/296 and 295/295 matched the saved keys), so every sample's
+> style text is known. Scratch script, sheets of samples looked at by eye.
+>
+> **Emuru's output is bimodal, not uniformly mediocre.** One style line: median
+> per-sample CER **9.3%** against a mean of 30.8%. The mean is carried by a tail --
+> 10% of lines above 90% CER -- and those lines are not bad handwriting, they are
+> no handwriting: two or three words, then a smear of repeated vertical strokes to
+> the end of the budget, or a blank. The median line reads well and looks like a
+> hand.
+>
+> **Two lines break the text, not only the tail.** Median CER 54.4%, 21% above
+> 90%. Typical two-line outputs repeat words ("has has", "trong trong"), drop
+> words, and pull words in from the style text ("plant" from "plants and
+> animals"). Worst cases are the same smear as above. CER rises with the combined
+> style text: 33% under 60 characters, 79% over 100. The hypothesis that the model
+> loses the boundary between style and target text fits what is on the page. Per
+> writer, two lines beat one for 31% of the 91 writers in both runs.
+>
+> **The style line matters even at one.** Style lines under 500px: mean CER 69%,
+> failures 22% (n 18). 500-1100px: 26-28%, failures 9-10% (n 242). Over 1100px:
+> 37% (n 36). A page offers a choice of style line; the evaluation drew one at
+> random.
+>
+> **Catching broken lines would raise identity too, not only CER.** Recomputed from
+> the saved images and reference keys -- which reproduced cell 6 exactly, 56.5% /
+> 47.3% / 30.4% -- with unreadable samples removed from generated and real alike:
+>
+> | kept | samples | writers | identity | own writer nearest | CER |
+> |---|---|---|---|---|---|
+> | all | 296 | 93 | 56.5% | 47.3% | 30.4% |
+> | CER <= 90% | 267 | 91 | 60.0% | 47.3% | 21.1% |
+> | CER <= 50% | 224 | 86 | 67.3% | 52.3% | 9.5% |
+>
+> A bound, not a measurement of a fix: removal is not a re-draw, it can remove
+> hard writers along with bad draws (93 writers fall to 86), and these carry no
+> intervals. It says the broken tail costs identity as well as legibility.
+>
+> **Fine-tuning is available.** The Emuru repository
+> (`github.com/aimagelab/Emuru-autoregressive-text-img`, MIT) ships training code,
+> per `docs/research-2026-08-28-vatr-line.md`; reported on one 4090. Whether it
+> adapts to one writer from 22 lines without overfitting is untested.
+>
 > ### The goal, restated by Amri -- 2026-09-14
 >
 > **A system that works**: photograph one or two pages of your own handwriting,
@@ -198,19 +243,23 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > ### The immediate next task
 >
-> **Look at what two lines did, no GPU.** Amri downloads from Drive
-> `MyDrive/nib/results/eval_emuru_lines` and `eval_emuru_lines_refs2` into
-> `outputs/`. Then: `scripts/analyse_run.py` on both (widths -- is the two-line
-> output short, i.e. skipping text?), and the `samples/` pairs side by side --
-> is it writing the style text, skipping words, or writing garbage?
+> **Recommended to Amri, awaiting his choice: generation with quality control.**
+> Use the page by *selection*, not concatenation. For each line to write: pick
+> style lines from the page in the length range that works (500-1100px), draw
+> several candidates, read each with TrOCR against the intended text, reject the
+> broken ones, keep the best. Selecting by readability first, because it is
+> independent of HWD; selecting by closeness to the writer comes second and must
+> use page lines disjoint from the ones identity is measured against, or it
+> measures itself. Needed in the product whatever else is done, fine-tuning
+> included. Costs candidates x generation time: 11 s a line measured, so four
+> candidates is about 45 s a line before any batching.
 >
-> **Then the next fidelity experiment**, chosen by what the samples show. If the
-> failure is the text boundary, it may be fixable in how the prompt is joined. If
-> not, use the page by *selection* rather than concatenation: generate from each
-> candidate style line and keep the one closest to the writer's other lines.
-> Eruku takes any width and is untested with two lines or more.
+> **Next after it, needs Amri's yes: per-writer fine-tuning** on page 1 of the
+> passage, measured on page 2. The largest untested lever on identity; training
+> code exists.
 >
-> Still awaiting Amri: per-writer fine-tuning as an experiment, yes or no.
+> Closed: joining style lines side by side for Emuru. Open but lower: Eruku with
+> several lines (untested, 128 min a run).
 >
 > `analyse_run.py` does not read HWD yet; cell 9 needs that before it can compare
 > two runs on style. Cells that should not be run sit below a "kept for
