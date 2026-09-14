@@ -274,6 +274,19 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >   against a T4's 15 GB. LoRA on T5's attention keeps optimiser state small and
 >   the per-writer result a few megabytes.
 >
+> - Read further (`modeling_emuru.py` on Hugging Face, `custom_datasets/load_hf_dataset.py`
+>   in the repository): T5 is a standard `T5ForConditionalGeneration` at
+>   `model.T5`, so PEFT's LoRA can target its attention projections. One training
+>   sample is **one line image and its full text**, padded to a fixed **768px**
+>   width -- no style-plus-target pairs.
+> - So Emuru learned on canvases of at most 768px and is used here on about
+>   1,740px (style 870 + target 870, medians). Checked against cell 6 whether
+>   that length drives the broken tail: it does not, cleanly. Failures above 90%
+>   CER by total canvas: 13.3% under 1,300px, 11.1%, 5.8% at 1,600-1,900, 13.7%,
+>   5.6% over 2,400 -- a U, not a rise. And two lines are bad at the same length:
+>   at 1,600-1,900px one line gives 25.0% mean CER, two give 50.5%. The tail looks
+>   like sampling, which a re-draw addresses; two lines fail for another reason.
+>
 > Planned as T29, on CVL first so it does not wait for Amri's pages: for held-out
 > writers, fine-tune on part of their lines, generate the rest, and compare
 > identity with and without, same writers, same targets. Measure minutes per
