@@ -128,6 +128,35 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > share too, but which is not the hand alone. And each run builds its own
 > reference, so 7b's figure is compared through its own real anchor, not raw.
 >
+> ### Two style lines side by side make Emuru worse -- T27, 2026-09-14
+>
+> Cell 7b: the same 300 requests with `--style-refs 2`, the two lines joined into
+> one wide image and their texts joined with a space (`nib.models.style.join_style`).
+> 295 kept, 86.4 minutes of generation against 56.5, saved to Drive
+> (`results/eval_emuru_lines_refs2`).
+>
+> | | one line (cell 6) | two lines (7b) | |
+> |---|---|---|---|
+> | HWD identity | 56.5% [50.9, 61.9] | **42.3% [36.2, 48.7]** | separate |
+> | own writer nearest | 47.3% [37.6, 57.0] | 25.0% [16.3, 33.7] | separate |
+> | HWD distance | 2.03 [1.90, 2.16] | 2.22 [2.07, 2.36] | overlap |
+> | FID | 67.70 [61.81, 73.59] | 90.64 [80.97, 100.30] | separate |
+> | CER | 30.4% [25.7, 35.2] | **59.6% [54.6, 64.4]** | separate |
+> | writer top-1 | 20.9% [16.6, 25.7] | 18.6% [14.2, 23.1] | overlap |
+> | truncated / excluded | 6.8% / 4 | 8.1% / 5 | |
+>
+> The criterion was fixed before the run -- clear 61.9% -- and it fell the other
+> way: worse on identity, on FID, and CER nearly doubled. Real lines scored the
+> same in both runs (0.86, identity gap 1.85 against 1.81), so the ruler did not
+> move; the output did.
+>
+> **Closed for Emuru: more evidence as a wider image.** Not closed: more evidence.
+> The collapse in CER says the model is not writing the target text, which points
+> at how two lines reach it rather than at the idea. Unverified hypothesis: Emuru
+> puts the style text and the target text through T5 together, and with two
+> lines' worth of prefix it loses where the style ends -- writing style words, or
+> skipping target words. The saved samples decide it without a GPU.
+>
 > ### The goal, restated by Amri -- 2026-09-14
 >
 > **A system that works**: photograph one or two pages of your own handwriting,
@@ -153,8 +182,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >    small blind test.
 > 3. **Fidelity, one experiment at a time, cheapest first**, each closed if the
 >    identity figure does not move outside its interval: pick the most
->    representative style line; more style lines (fix Emuru's stopping rule;
->    Eruku takes any width and is untested at four or more); best-of-N against
+>    representative style line; more style lines (side by side made Emuru worse at two, T27;
+>    Eruku takes any width and is untested at two or more); best-of-N against
 >    the writer's other lines; per-writer fine-tuning, **which needs Amri to
 >    reopen "no per-user training"**; another model only if those fail.
 > 4. **Finish the pipeline**: transcribe the style lines or use a dictated
@@ -169,10 +198,19 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > ### The immediate next task
 >
-> **Run cell 7b** (Emuru, two style lines). Cells 1-6 are done: cell 5 passed
-> (fake identity -0.5% [-5.5, 4.4]) and cell 6 gave identity 56.5% [50.9, 61.9].
-> If 7b's interval clears 61.9%, more evidence of the hand helps and fixing
-> Emuru's stopping rule for more lines is the next fidelity experiment.
+> **Look at what two lines did, no GPU.** Amri downloads from Drive
+> `MyDrive/nib/results/eval_emuru_lines` and `eval_emuru_lines_refs2` into
+> `outputs/`. Then: `scripts/analyse_run.py` on both (widths -- is the two-line
+> output short, i.e. skipping text?), and the `samples/` pairs side by side --
+> is it writing the style text, skipping words, or writing garbage?
+>
+> **Then the next fidelity experiment**, chosen by what the samples show. If the
+> failure is the text boundary, it may be fixable in how the prompt is joined. If
+> not, use the page by *selection* rather than concatenation: generate from each
+> candidate style line and keep the one closest to the writer's other lines.
+> Eruku takes any width and is untested with two lines or more.
+>
+> Still awaiting Amri: per-writer fine-tuning as an experiment, yes or no.
 >
 > `analyse_run.py` does not read HWD yet; cell 9 needs that before it can compare
 > two runs on style. Cells that should not be run sit below a "kept for
@@ -437,6 +475,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T24 | HWD identity anchor: own writer against every other | **done** | T4: Emuru identity **56.5% [50.9, 61.9]** of real, own writer nearest 47.3% against chance 1.1% · fake on GPU -0.5% [-5.5, 4.4] · typeface gap -0.01 · run cells save to Drive themselves; cell 7b adds two style lines · 388 passed |
 | T25 | Split a photographed page into lines | **done, one photo open** | 13 lines on 4 of 5 photos of Amri's page (angle, normal, shadow, WhatsApp) · `dim` fails upstream, `find_page` returns the whole frame -- strict xfail · 11 tests + 1 xfail |
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
+| T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 
 ## Waiting on Amri
 
@@ -469,6 +508,16 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-14 — T24 and T27 measured: one line carries 56.5% of the identity, two
+  carry less.** Cell 6 gave Emuru's first identity figure, 56.5% [50.9%, 61.9%] of what
+  real lines carry, with the typeface at zero -- past half, where retrieval had put it
+  at a quarter. Cell 7b joined two style lines into one image and fell below it on
+  every measure that separated: identity 42.3% [36.2%, 48.7%], FID 90.64 against 67.70,
+  CER 59.6% against 30.4%. The pass mark was set before the run. The real anchors did
+  not move between runs, so the model did. A CER that doubles means the target text is
+  not being written, which points at the joining rather than at the value of more
+  evidence; the saved samples will say which.
 
 - **2026-09-14 — T25 and T26: from a photographed page to lines, and a page made to be
   copied.** Amri's existing sample is one page photographed five ways -- 13 lines on
