@@ -53,6 +53,15 @@ and touches letters, and a letter joined to a grid line becomes one long thin
 component that is dropped as ruling -- which is how "The" and "written" vanished
 from the first run on Amri's photographs. Straight horizontal and vertical runs
 far longer than any stroke are removed from the ink mask before it is split.
+
+**Small marks follow the letter nearest them, not the nearest line.** Assigning
+every component by its centre sent an asterisk written high before "She" to the
+line above, and the bowl of a "P" -- written as two strokes -- to one line and
+its stem to the next. Dots, commas and full stops were lost outright, as specks.
+Now only components of at least ``anchor_share`` of the median letter height
+place the lines; every smaller mark -- a dot, a comma, a bowl, and a speck that
+passed the darkness test -- joins the line of the nearest anchor, if one is
+within ``attach_reach``. A speck with no letter near it is still dropped.
 """
 
 from __future__ import annotations
@@ -116,6 +125,14 @@ class SegmentConfig:
     """A line of fewer components is a punch hole or a smudge. The shortest real
     line on Amri's page, the end of the alphabet, has five to seven."""
 
+    anchor_share: float = 0.6
+    """Components at least this share of the median component height place the
+    lines. Smaller ones join the line of the nearest of these."""
+
+    attach_reach: float = 0.75
+    """How near a small mark must be to a letter to join its line, in median
+    component heights, measured between their bounding boxes."""
+
     padding: int = 6
     """White border around each crop, in pixels."""
 
@@ -127,6 +144,9 @@ class SegmentConfig:
 DEFAULT = SegmentConfig()
 
 REASONS = ("faint", "speck", "edge", "ruling", "blob", "oversized", "stray", "sparse")
+
+_NO_MIN_AREA = SegmentConfig(min_area=0)
+"""The same rules without the size test: what a speck would be if it were bigger."""
 
 
 @dataclass(frozen=True)
@@ -162,6 +182,7 @@ def split_lines(page: np.ndarray, config: SegmentConfig = DEFAULT) -> Segmentati
     dropped = dict.fromkeys(REASONS, 0)
 
     kept: list[int] = []
+    specks: list[int] = []
     for index in range(1, count):
         if strong[index] < config.min_strong:
             dropped["faint"] += 1
@@ -169,33 +190,75 @@ def split_lines(page: np.ndarray, config: SegmentConfig = DEFAULT) -> Segmentati
         reason = _reject(stats[index], width, height, config)
         if reason is None:
             kept.append(index)
+        elif reason == "speck" and _reject(stats[index], width, height, _NO_MIN_AREA) is None:
+            specks.append(index)
         else:
             dropped[reason] += 1
     if not kept:
+        dropped["speck"] += len(specks)
         return Segmentation(lines=[], dropped=dropped)
 
     # Oversized is relative to the writing itself, so it needs the others first.
     scale = float(np.median(stats[kept, cv2.CC_STAT_HEIGHT]))
     letters = [i for i in kept if stats[i, cv2.CC_STAT_HEIGHT] <= config.oversized * scale]
     dropped["oversized"] += len(kept) - len(letters)
-    if not letters:
+    anchors = [i for i in letters if stats[i, cv2.CC_STAT_HEIGHT] >= config.anchor_share * scale]
+    anchor_set = set(anchors)
+    small = [i for i in letters if i not in anchor_set] + specks
+    if not anchors:
+        dropped["speck"] += len(specks)
         return Segmentation(lines=[], dropped=dropped)
 
-    rows = centroids[letters, 1]
-    centres = _line_centres(rows, stats[letters, cv2.CC_STAT_AREA], height, scale, config)
+    rows = centroids[anchors, 1]
+    centres = _line_centres(rows, stats[anchors, cv2.CC_STAT_AREA], height, scale, config)
     pitch = float(np.median(np.diff(centres))) if len(centres) > 1 else 3.0 * scale
     nearest = np.abs(rows[:, None] - centres[None, :]).argmin(axis=1)
     far = np.abs(rows - centres[nearest]) > 0.75 * pitch
     dropped["stray"] += int(far.sum())
+    line_of = {anchor: int(nearest[i]) for i, anchor in enumerate(anchors) if not far[i]}
+
+    attached = _attach(stats, small, list(line_of), config.attach_reach * scale)
+    speck_set = set(specks)
+    for mark, anchor in attached.items():
+        if anchor is None:
+            dropped["speck" if mark in speck_set else "stray"] += 1
+        else:
+            line_of[mark] = line_of[anchor]
 
     lines = []
     for number in range(len(centres)):
-        members = [letters[i] for i in range(len(letters)) if nearest[i] == number and not far[i]]
-        if len(members) < config.min_line_components:
+        members = [c for c, n in line_of.items() if n == number]
+        placed = sum(1 for c in members if c in anchor_set)
+        if placed < config.min_line_components:
             dropped["sparse"] += len(members)
             continue
         lines.append(_crop(page, labels, stats, members, config))
     return Segmentation(lines=lines, dropped=dropped)
+
+
+def _attach(stats: np.ndarray, marks: list[int], anchors: list[int], reach: float) -> dict:
+    """For each small mark, the nearest anchor within ``reach`` -- by the gap
+    between their bounding boxes -- or None."""
+    if not marks:
+        return {}
+    if not anchors:
+        return dict.fromkeys(marks)
+
+    def boxes(indices):
+        x = stats[indices, cv2.CC_STAT_LEFT].astype(float)
+        y = stats[indices, cv2.CC_STAT_TOP].astype(float)
+        return x, y, x + stats[indices, cv2.CC_STAT_WIDTH], y + stats[indices, cv2.CC_STAT_HEIGHT]
+
+    mx0, my0, mx1, my1 = boxes(marks)
+    ax0, ay0, ax1, ay1 = boxes(anchors)
+    dx = np.maximum(0, np.maximum(ax0[None, :] - mx1[:, None], mx0[:, None] - ax1[None, :]))
+    dy = np.maximum(0, np.maximum(ay0[None, :] - my1[:, None], my0[:, None] - ay1[None, :]))
+    gap = np.hypot(dx, dy)
+    best = gap.argmin(axis=1)
+    return {
+        mark: (anchors[best[row]] if gap[row, best[row]] <= reach else None)
+        for row, mark in enumerate(marks)
+    }
 
 
 def _straight_runs(ink: np.ndarray, width: int, config: SegmentConfig) -> np.ndarray:

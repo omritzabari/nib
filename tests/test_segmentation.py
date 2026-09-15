@@ -16,12 +16,17 @@ from nib.data.preprocessing import normalise_page
 from nib.data.segmentation import DEFAULT, split_lines
 
 PHOTOS = find_repo_root() / "data" / "raw" / "personal"
-_REAL = [p for p in sorted(PHOTOS.glob("*")) if p.suffix.lower() in {".jpg", ".jpeg", ".png"}]
+_PHOTOS = [p for p in sorted(PHOTOS.glob("*")) if p.suffix.lower() in {".jpg", ".jpeg", ".png"}]
+_REAL = [p for p in _PHOTOS if not p.stem.startswith("passage")]
+_PASSAGE = [p for p in _PHOTOS if p.stem.startswith("passage")]
 needs_photos = pytest.mark.skipif(len(_REAL) < 3, reason=f"fewer than 3 photographs under {PHOTOS}")
 
 PAGE1_LINES = 13
 """Counted on the photographs by eye: ten lines of sentences, one of digits, and
 the alphabet over two."""
+
+PASSAGE_LINES = 22
+"""Every page of the dictated passage is written as 22 lines, by design."""
 
 
 def written_page(texts, pitch=60, width=900, top=80):
@@ -145,3 +150,40 @@ def test_amris_page_gives_the_same_lines_under_every_condition(path):
     result = split_lines(page)
 
     assert len(result.lines) == PAGE1_LINES, result.dropped
+
+
+@pytest.mark.skipif(not _PASSAGE, reason=f"no passage page under {PHOTOS}")
+@pytest.mark.parametrize("path", _PASSAGE, ids=[p.stem for p in _PASSAGE])
+def test_a_written_passage_page_gives_its_22_lines(path):
+    page = normalise_page(cv2.imread(str(path)))
+
+    result = split_lines(page)
+
+    assert len(result.lines) == PASSAGE_LINES, result.dropped
+
+
+def test_a_dot_joins_the_letter_beside_it_not_the_nearest_line():
+    """An asterisk written high before a word sits nearer the line above by its
+    centre, and belongs to the line of the letter right beside it."""
+    page, baselines = written_page(TEXTS, pitch=60)
+    below = baselines[2]
+    cv2.circle(page, (30, below - 28), 3, 0, -1)  # high, left of line 3's first letter
+
+    result = split_lines(page)
+
+    assert len(result.lines) == len(TEXTS)
+    x, y, w, h = result.lines[2].box
+    assert x <= 30 and y <= below - 31, "the mark is inside line 3's crop"
+    x, y, w, h = result.lines[1].box
+    assert not (x <= 30 <= x + w and y <= below - 28 <= y + h), "and not in line 2's"
+
+
+def test_a_speck_far_from_any_writing_is_still_dropped():
+    page, _ = written_page(TEXTS)
+    page[20:23, 850:853] = 0
+
+    result = split_lines(page)
+
+    assert len(result.lines) == len(TEXTS)
+    assert result.dropped["speck"] >= 1
+    assert all(x + w < 840 for x, _, w, _ in (line.box for line in result.lines))

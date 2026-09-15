@@ -26,10 +26,17 @@ from nib.data.preprocessing import (
     normalise_page,
     suppress_ruling,
     warp_page,
+    working_side,
 )
 
 PHOTOS = find_repo_root() / "data" / "raw" / "personal"
-_REAL = [p for p in sorted(PHOTOS.glob("*")) if p.suffix.lower() in {".jpg", ".jpeg", ".png"}]
+# The same page photographed five ways. A dictated passage page is a different
+# page, and would make "the conditions stopped mattering" untestable.
+_REAL = [
+    p
+    for p in sorted(PHOTOS.glob("*"))
+    if p.suffix.lower() in {".jpg", ".jpeg", ".png"} and not p.stem.startswith("passage")
+]
 needs_photos = pytest.mark.skipif(len(_REAL) < 3, reason=f"fewer than 3 photographs under {PHOTOS}")
 
 
@@ -285,3 +292,12 @@ def test_the_light_kernel_size_matters():
     tiny = (normalise_page(image, config=NormaliseConfig(light_kernel_ratio=0.002)) < 128).mean()
     assert abs(tiny - good) > 0.002, "kernel size has no effect, so the default is unjustified"
     assert DEFAULT.light_kernel_ratio > 0.01
+
+
+def test_a_photo_is_never_shrunk_by_more_than_a_fifth():
+    """A fixed 1600px cost a 2792px photo 43% of its size and its thin strokes with
+    it; the 2000px photos were shrunk 20% and lost nothing."""
+    assert working_side(2000) == 1600, "the earlier photos are worked on exactly as before"
+    assert working_side(2792) == 2234
+    assert working_side(1200) == 1200, "a small photo is never enlarged"
+    assert working_side(6000) == DEFAULT.work_max_side_cap

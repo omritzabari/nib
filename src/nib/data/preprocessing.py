@@ -44,6 +44,20 @@ class NormaliseConfig:
     """Longest side used for page-level work. Phone photos are far larger than
     the detail needed, and the operations below are quadratic in area."""
 
+    min_scale: float = 0.8
+    """Never shrink a photo below this share of its size, whatever
+    ``work_max_side`` says.
+
+    A fixed 1600px cost Amri's 2792px passage photo 43% of its size, and pen
+    strokes that thin fell below every stroke threshold downstream: the "U" of
+    "Uri", "P.S.", the dots and commas, all dropped as specks. His earlier 2000px
+    photos were shrunk by 20% and lost nothing. Shrinking by at most 20% keeps
+    those exactly as they were and gives the larger photo the same treatment."""
+
+    work_max_side_cap: int = 2800
+    """Upper bound on the working size, so a very large photo still costs a
+    bounded amount of work."""
+
     page_min_area_ratio: float = 0.25
     """A detected quadrilateral smaller than this fraction of the frame is not a
     page; better to keep the whole photo than to crop to a napkin."""
@@ -319,7 +333,7 @@ def normalise_page(
     """
     gray = _to_gray(image)
 
-    scale = min(1.0, config.work_max_side / max(gray.shape))
+    scale = min(1.0, working_side(max(gray.shape), config) / max(gray.shape))
     if scale < 1.0:
         gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
 
@@ -337,6 +351,13 @@ def normalise_page(
     if remove_ruling:
         gray = suppress_ruling(gray, config)
     return normalise_ink(gray, config)
+
+
+def working_side(longest: int, config: NormaliseConfig = DEFAULT) -> int:
+    """The longest side a photo is worked on at: ``work_max_side``, raised so the
+    photo is never shrunk below ``min_scale`` of its size, and capped."""
+    wanted = max(config.work_max_side, round(config.min_scale * longest))
+    return min(longest, min(wanted, max(config.work_max_side, config.work_max_side_cap)))
 
 
 def _to_gray(image: np.ndarray) -> np.ndarray:
