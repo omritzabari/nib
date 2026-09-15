@@ -181,8 +181,10 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > points, where it was 19.1. CER is partly flattered by selection -- a different
 > recogniser chose, but both are TrOCR -- so the clean evidence is **FID, which
 > separates**, and which no recogniser touches. Identity rose by 8.5 points to
-> 65.0%, where the removal bound had put 60-67%, but its interval still touches
-> cell 6's; not yet a finding on the conservative test.
+> 65.0%, where the removal bound had put 60-67%, and **the paired test makes it a finding**: over
+> the 84 writers both runs scored, identity 56.7% -> 65.0%, difference **+8.3
+> points [2.4, 14.8]** resampled per writer; it rose for 65% of writers. Own
+> writer nearest 46.4% -> 58.3%, difference +11.9 [-1.2, 23.8], not separate.
 >
 > Not like for like in two ways, both stated in the run: `--style-refs 4` draws
 > different targets from the same seed, and consuming four style lines a request
@@ -281,10 +283,25 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > 67.70 -> 55.87 (separate), identity 56.5% -> 65.0% (intervals touch). It is the
 > generation step from here on.
 >
-> **Small, no GPU:** Amri downloads `MyDrive/nib/results/eval_emuru_lines_refs4_cand4`
-> into `outputs/`. Then a paired comparison of identity with cell 6 over the
-> writers both runs scored -- the difference resampled per writer, which is a
-> sharper test than two overlapping intervals -- and the samples by eye.
+> Paired identity comparison with cell 6: done, +8.3 points [2.4, 14.8].
+>
+> **In progress, Claude: T29, per-writer fine-tuning.** Emuru's cached config:
+> `slices_per_query` 1, `vae_channels` 1, T5 `google-t5/t5-large` (d_model 1024,
+> 24+24 layers, 16 heads), tokenizer `google/byt5-small`. `_img_encode` samples
+> the VAE posterior, rearranges it one slice per 8px, adds teacher noise, and
+> prepends a learned start token. First component `nib.models.finetune`: line
+> preparation with white after the text, LoRA attach and reset, a training loop.
+> Then `scripts/evaluate_finetune.py`: same writers, same targets, with and without.
+>
+> **Both written and verified locally; the run is next. Notebook cell 7d**, after
+> cells 1-4: 24 held-out writers, 16 train lines, 4 targets, 150 steps at rank 8,
+> quality control on both conditions. Read the paired `difference` under HWD
+> identity, `training` seconds per writer, and CER for both. Training time on a
+> T4 has not been measured -- 5.8 s a step was on CPU -- and the progress line
+> after the first writer is the first real figure. 150 steps and lr 2e-4 are
+> starting points, not tuned.
+>
+> **In progress, Amri:** writing out the two passage pages.
 > Use the page by *selection*, not concatenation. For each line to write: pick
 > style lines from the page in the length range that works (500-1100px), draw
 > several candidates, read each with TrOCR against the intended text, reject the
@@ -597,8 +614,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T25 | Split a photographed page into lines | **done, one photo open** | 13 lines on 4 of 5 photos of Amri's page (angle, normal, shadow, WhatsApp) · `dim` fails upstream, `find_page` returns the whole frame -- strict xfail · 11 tests + 1 xfail |
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
-| T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5% -- touching · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
-| T29 | Per-writer fine-tuning on CVL | **planned** | approved 2026-09-14; Emuru's training code read, nothing run |
+| T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
+| T29 | Per-writer fine-tuning on CVL | **code done, run pending** | `nib.models.finetune` + `scripts/evaluate_finetune.py` · 11 tests on a tiny T5 shaped like Emuru · smoke on the real checkpoint, CPU: LoRA 4.72M of 719M (0.66%), adapter 19 MB, fresh adapter and reset both give the released loss exactly (0.48608), 5.8 s a training step, generation runs with the adapter attached · the whole experiment run tiny on CPU (2 writers, 1 step) end to end · notebook cell 7d |
 
 ## Waiting on Amri
 
@@ -631,6 +648,19 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-15 — T29 built: per-writer LoRA fine-tuning, and the experiment that
+  judges it.** `nib.models.finetune` prepares a writer's lines as Emuru trained on
+  them -- one line, its full text, white after the last stroke so the stopping
+  rule survives -- attaches LoRA to T5's attention projections, trains, and resets
+  between writers. On the real checkpoint, CPU: 4.72M trainable of 719M, an adapter
+  of 19 MB, a fresh adapter and a reset both reproducing the released loss exactly,
+  and generation running with the adapter attached. `scripts/evaluate_finetune.py`
+  generates the same targets for the same writers with and without, and tests the
+  difference paired by writer; run tiny on CPU end to end, which exposed that two
+  writers give a tight, meaningless interval, so it now declines to judge below ten.
+  The identity gain from quality control was confirmed the same way first: +8.3
+  points [2.4, 14.8] over 84 shared writers.
 
 - **2026-09-14 — T28: re-drawing the broken lines makes Emuru read like real
   handwriting.** Up to four draws a line, each from one style line chosen by width,

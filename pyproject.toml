@@ -54,6 +54,7 @@ models = [
     "safetensors>=0.4",
     "sentencepiece>=0.2", # the T5 and byt5 tokenizers
     "scipy>=1.11",        # the matrix square root inside FID
+    "peft>=0.13",         # LoRA, for the per-writer fine-tune in nib.models.finetune
 ]
 
 # The field's style metric, and the one ours failed to be: our writer retrieval
