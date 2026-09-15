@@ -281,6 +281,15 @@ def main(argv: list[str] | None = None) -> int:
         "measures CER, or the reported CER would reward the judge's own mistakes.",
     )
     parser.add_argument(
+        "--keep",
+        choices=("readable", "hand"),
+        default="readable",
+        help="with --candidates: 'readable' stops at the first readable draw; 'hand' "
+        "makes every draw and keeps the readable one whose writer embedding is closest "
+        "to the style lines. In 'hand' mode the writer-retrieval figure uses the same "
+        "embedding that chose, so it is not independent; HWD is.",
+    )
+    parser.add_argument(
         "--allow-stale-references",
         action="store_true",
         help="run even when the baseline was measured on a different version of "
@@ -316,6 +325,8 @@ def main(argv: list[str] | None = None) -> int:
         suffix += f"_refs{args.style_refs}"
     if args.candidates != 1:
         suffix += f"_cand{args.candidates}"
+    if args.keep != "readable":
+        suffix += f"_by{args.keep}"
     out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}{suffix}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
 
@@ -359,11 +370,18 @@ def main(argv: list[str] | None = None) -> int:
         # A longer reading limit than the judge's: a smeared draw can read as a
         # long string of junk, and a reading cut short would score it too kindly.
         selector = TrOcrRecogniser(model_name=args.selector, device=device, max_new_tokens=64)
+        hand = None
+        if args.keep == "hand":
+            # This project's writer embedding chooses; HWD, a different network
+            # trained on different data, measures.
+            hand, source = _embedder(cfg, device)
+            print(f"  keeping the draw closest to the hand, by {source}")
         generator = candidates_mod.CandidateGenerator(
             generator,
             selector,
             candidates=args.candidates,
             accept_cer=(candidates_mod.ACCEPT_CER if args.accept_cer is None else args.accept_cer),
+            hand=hand,
         )
     print(f"  {generator.name}, output height {generator.output_height}px")
 

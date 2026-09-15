@@ -47,6 +47,9 @@ from nib.models.generator import EmptyGeneration, GenerationRequest
 MIN_WRITERS_FOR_VERDICT = 10
 """Below this many writers the paired interval is printed but not judged."""
 
+OTHER_LINES = 400
+"""Lines by other writers to draw from in ``--context other``."""
+
 
 def split_writers(by_writer, held_out, writers, train_lines, targets, seed):
     """Choose writers with enough lines, and split each one's lines three ways."""
@@ -65,6 +68,25 @@ def split_writers(by_writer, held_out, writers, train_lines, targets, seed):
             "targets": keys[train_lines : train_lines + targets],
         }
     return eligible, plan
+
+
+def _other_writers(pack, by_writer, split, seed, limit=OTHER_LINES):
+    """Lines by writers on the training side of the split, never evaluated here,
+    of widths that generated well (500-1100px), as a fixed sample.
+    """
+    from nib.models.candidates import STYLE_WIDTH_RANGE
+
+    low, high = STYLE_WIDTH_RANGE
+    keys = sorted(k for w in split.writers["train"] for k in by_writer.get(w, ()))
+    random.Random(seed).shuffle(keys)
+    chosen = []
+    for key in keys:
+        sample = pack[key]
+        if low <= sample.image.shape[1] <= high:
+            chosen.append((sample.image, sample.text))
+        if len(chosen) == limit:
+            break
+    return chosen
 
 
 def generate_all(generator, requests):
@@ -90,6 +112,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--batch-size", type=int, default=finetune.DEFAULT_CONFIG.batch_size)
     parser.add_argument("--candidates", type=int, default=4)
+    parser.add_argument(
+        "--context",
+        choices=finetune.CONTEXTS,
+        default=finetune.DEFAULT_CONFIG.context,
+        help="own: train on the writer's lines alone, as T29 did. other: put a "
+        "line by a writer from the training split in front of each, and count the "
+        "loss on the writer's line only, so the hand cannot be copied from context.",
+    )
+    parser.add_argument("--noise", type=float, default=finetune.DEFAULT_CONFIG.noise)
     parser.add_argument("--selector", default="microsoft/trocr-small-handwritten")
     parser.add_argument("--device", default="cuda")
     args, overrides = parser.parse_known_args(argv)
@@ -104,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
         learning_rate=args.learning_rate,
         steps=args.steps,
         batch_size=args.batch_size,
+        noise=args.noise,
+        context=args.context,
         seed=seed,
     )
 
@@ -111,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
     by_writer = pack.writers()
     split = WriterSplit.load(repo / "configs" / "splits" / "cvl-writer-disjoint.json")
     held_out = [w for w in split.writers["test"] if w in by_writer]
+    others = _other_writers(pack, by_writer, split, seed) if args.context == "other" else None
+    if others is not None:
+        print(f"others    {len(others)} lines by training-split writers, one before each line")
     eligible, plan = split_writers(
         by_writer, held_out, args.writers, args.train_lines, args.targets, seed
     )
@@ -120,6 +156,11 @@ def main(argv: list[str] | None = None) -> int:
 
     ensure_dirs(cfg, "outputs")
     name = f"finetune_w{len(plan)}_t{args.train_lines}_s{args.steps}_r{args.rank}"
+    if (
+        config.context != finetune.DEFAULT_CONFIG.context
+        or config.noise != finetune.DEFAULT_CONFIG.noise
+    ):
+        name += f"_{config.context}_n{config.noise:g}"
     out_dir = get_path(cfg, "outputs") / name
     for sub in ("baseline", "adapted"):
         (out_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -158,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
             [line.text for line in train],
             config,
             device=args.device,
+            others=others,
         )
         adapted = generate_all(generator, requests)
         finetune.reset_lora(emuru.model)

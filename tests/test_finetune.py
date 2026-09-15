@@ -119,7 +119,14 @@ class TinyEmuru(torch.nn.Module):
         embeds = torch.cat([self.sos.weight.expand(img.size(0), 1, -1), self.vae_to_t5(noisy)], 1)
         out = self.T5(input_ids, attention_mask=attention_mask, decoder_inputs_embeds=embeds)
         predicted = self.t5_to_vae(out.logits[:, :-1])
-        return torch.nn.functional.mse_loss(predicted, slices), predicted, slices
+        loss = torch.nn.functional.mse_loss(predicted, slices)
+        # Emuru returns latents shaped (batch, channels, height, slices).
+        layout = (predicted.size(0), 1, predicted.size(2), predicted.size(1))
+        return (
+            loss,
+            predicted.transpose(1, 2).reshape(layout),
+            slices.transpose(1, 2).reshape(layout),
+        )
 
 
 def _outputs(model, lines, texts):
@@ -133,6 +140,62 @@ def _outputs(model, lines, texts):
 
 LINES = [_line(120), _line(200)]
 TEXTS = ["a line", "another line"]
+OTHERS = [(_line(160), "someone else"), (_line(90), "not mine")]
+
+
+# ---------------------------------------------------------------------------
+# Withholding the writer's own strokes: another writer's line in front
+# ---------------------------------------------------------------------------
+
+
+def test_a_pair_puts_the_writers_line_after_the_other_on_a_slice_boundary():
+    before, mine = _line(100), _line(60)
+
+    canvas, start = finetune.prepare_pair(before, mine, gap=16, trailing=128)
+
+    assert start * finetune.PIXELS_PER_SLICE >= 100 + 16
+    pixels = start * finetune.PIXELS_PER_SLICE
+    np.testing.assert_array_equal(canvas[0, :, pixels : pixels + 60], prepare_line(mine)[0, :, :60])
+    assert (canvas[..., 100:pixels] == 1.0).all(), "the gap is white"
+    assert canvas.shape[-1] % finetune.PIXELS_PER_SLICE == 0
+
+
+def test_the_masked_loss_counts_only_slices_from_each_start():
+    target = torch.zeros((2, 1, 8, 10))
+    predicted = torch.zeros((2, 1, 8, 10))
+    predicted[0, ..., :4] = 5.0  # wrong, but before sample 0's start
+    predicted[1, ..., 6:] = 1.0  # wrong, and after sample 1's start
+
+    loss = finetune.masked_mse(predicted, target, starts=[4, 6])
+
+    # Sample 0 counts slices 4-9, all right; sample 1 counts slices 6-9, all off
+    # by 1.0. Ten slices counted, four wrong: the error before each start is ignored.
+    assert float(loss) == pytest.approx(4.0 / 10.0)
+
+
+def test_training_with_another_writer_in_front_lowers_the_loss():
+    model = TinyEmuru()
+    finetune.attach_lora(model, FinetuneConfig(dropout=0.0))
+    config = FinetuneConfig(
+        steps=80, learning_rate=1e-2, dropout=0.0, noise=0.0, batch_size=2, context="other"
+    )
+
+    report = finetune.train_writer(model, LINES, TEXTS, config, others=OTHERS)
+
+    assert np.mean(report.losses[-8:]) < np.mean(report.losses[:8])
+
+
+def test_context_other_without_other_writers_is_refused():
+    model = TinyEmuru()
+    finetune.attach_lora(model, FinetuneConfig())
+
+    with pytest.raises(ValueError, match="other writers"):
+        finetune.train_writer(model, LINES, TEXTS, FinetuneConfig(steps=1, context="other"))
+
+
+def test_an_unknown_context_is_refused():
+    with pytest.raises(ValueError, match="context"):
+        FinetuneConfig(context="nobody")
 
 
 def test_attaching_lora_trains_only_the_adapter_and_changes_nothing_yet():

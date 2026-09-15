@@ -33,7 +33,20 @@ after its last stroke.
 the next writer re-initialises it with B at zero, which makes every correction
 exactly zero and the model exactly the released one again -- nothing reloaded.
 
-The defaults below are starting points, not measurements. T29 measures them.
+**Why the first recipe learned nothing, and the second.** Trained on the writer's
+lines alone (``context="own"``), 150 steps took 56 s a writer on a T4 and moved
+identity by +0.1 points [-6.8, 6.7] while CER rose 12.7% -> 19.7% (T29). The
+likely reason: teacher forcing predicts every slice from the writer's own
+preceding slices, so the hand is always in view and nothing has to be stored in
+the weights. ``context="other"`` withholds it. Each of the writer's lines is
+placed after a line by *another* writer, the loss is taken on the writer's line
+only, and the teacher-forced slices are noised harder -- so the start of every
+line has the wrong hand in front of it, and what comes after is too corrupted to
+simply continue. What produces this writer's strokes then has to be in the
+adapter. Latent slices of ink measure a standard deviation of about 1.17 on the
+released VAE; Emuru's own training noise of 0.1 is 9% of that.
+
+The defaults below are starting points, not measurements, except where stated.
 """
 
 from __future__ import annotations
@@ -55,11 +68,17 @@ TRAILING_WHITE = 128
 """White pixels after each training line: sixteen slices, past the ten that the
 stopping criterion looks for."""
 
+CONTEXT_GAP = 16
+"""White pixels between another writer's line and the writer's own, in
+``context="other"``: two slices, enough that no stroke of one runs into the other."""
+
 LORA_TARGETS = ("q", "k", "v", "o")
 """T5's attention projections, in self- and cross-attention alike: the weights
 that decide what each position attends to, in the text and in the line so far."""
 
 LORA_MARKER = "lora_"
+
+CONTEXTS = ("own", "other")
 
 
 @dataclass(frozen=True)
@@ -78,11 +97,44 @@ class FinetuneConfig:
     (``--teacher_noise`` 0.1). Without it the model learns to lean on perfect
     previous slices, which it never has while generating."""
 
+    context: str = "own"
+    """What precedes each training line: ``own`` -- nothing, as Emuru trained; or
+    ``other`` -- a line by another writer, with the loss on the writer's line only."""
+
     max_grad_norm: float = 1.0
     seed: int = 0
 
+    def __post_init__(self) -> None:
+        if self.context not in CONTEXTS:
+            raise ValueError(f"context must be one of {CONTEXTS}, got {self.context!r}")
+
 
 DEFAULT_CONFIG = FinetuneConfig()
+
+
+def _scaled(image: np.ndarray, height: int) -> np.ndarray:
+    gray = np.asarray(image)
+    if gray.ndim != 2 or gray.size == 0:
+        raise ValueError(f"expected a non-empty grayscale line, got shape {gray.shape}")
+    if gray.dtype != np.uint8:
+        raise ValueError(f"expected uint8, got {gray.dtype}")
+    if gray.shape[0] == height:
+        return gray
+    scale = height / gray.shape[0]
+    return cv2.resize(
+        gray,
+        (max(1, round(gray.shape[1] * scale)), height),
+        interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC,
+    )
+
+
+def _whole_slices(pixels: int) -> int:
+    return math.ceil(pixels / PIXELS_PER_SLICE) * PIXELS_PER_SLICE
+
+
+def _to_model(canvas: np.ndarray) -> np.ndarray:
+    array = canvas.astype(np.float32) / 127.5 - 1.0
+    return np.repeat(array[None], 3, axis=0)
 
 
 def prepare_line(
@@ -96,25 +148,32 @@ def prepare_line(
     to a whole number of slices, and mapped to [-1, 1] in three channels -- the
     same convention ``EmuruGenerator`` feeds the model at generation time.
     """
-    gray = np.asarray(image)
-    if gray.ndim != 2 or gray.size == 0:
-        raise ValueError(f"expected a non-empty grayscale line, got shape {gray.shape}")
-    if gray.dtype != np.uint8:
-        raise ValueError(f"expected uint8, got {gray.dtype}")
-
-    if gray.shape[0] != height:
-        scale = height / gray.shape[0]
-        gray = cv2.resize(
-            gray,
-            (max(1, round(gray.shape[1] * scale)), height),
-            interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC,
-        )
-
-    width = math.ceil((gray.shape[1] + trailing) / PIXELS_PER_SLICE) * PIXELS_PER_SLICE
-    canvas = np.full((height, width), 255, dtype=np.uint8)
+    gray = _scaled(image, height)
+    canvas = np.full((height, _whole_slices(gray.shape[1] + trailing)), 255, dtype=np.uint8)
     canvas[:, : gray.shape[1]] = gray
-    array = canvas.astype(np.float32) / 127.5 - 1.0
-    return np.repeat(array[None], 3, axis=0)
+    return _to_model(canvas)
+
+
+def prepare_pair(
+    before: np.ndarray,
+    line: np.ndarray,
+    height: int = NATIVE_HEIGHT,
+    gap: int = CONTEXT_GAP,
+    trailing: int = TRAILING_WHITE,
+) -> tuple[np.ndarray, int]:
+    """Another writer's line, then this writer's, as one training canvas.
+
+    Returns the canvas and the slice at which this writer's line begins -- where
+    the loss starts counting. The writer's line starts on a slice boundary, so no
+    slice mixes the two hands.
+    """
+    first = _scaled(before, height)
+    second = _scaled(line, height)
+    start = _whole_slices(first.shape[1] + gap)
+    canvas = np.full((height, _whole_slices(start + second.shape[1] + trailing)), 255, np.uint8)
+    canvas[:, : first.shape[1]] = first
+    canvas[:, start : start + second.shape[1]] = second
+    return _to_model(canvas), start // PIXELS_PER_SLICE
 
 
 def pad_batch(lines: Sequence[np.ndarray]) -> np.ndarray:
@@ -130,6 +189,22 @@ def pad_batch(lines: Sequence[np.ndarray]) -> np.ndarray:
     for index, line in enumerate(lines):
         batch[index, ..., : line.shape[-1]] = line
     return batch
+
+
+def masked_mse(predicted, target, starts: Sequence[int]):
+    """Mean squared error over the slices from each sample's start onwards.
+
+    Width is the last axis of both tensors, one column per slice -- Emuru's
+    ``pred_latent`` and ``z`` are shaped (batch, channels, height, slices).
+    """
+    import torch
+
+    error = (predicted - target) ** 2
+    per_slice = error.reshape(error.shape[0], -1, error.shape[-1]).mean(dim=1)
+    columns = torch.arange(error.shape[-1], device=error.device)
+    begin = torch.as_tensor(list(starts), device=error.device)
+    mask = (columns[None, :] >= begin[:, None]).to(per_slice.dtype)
+    return (per_slice * mask).sum() / mask.sum().clamp(min=1)
 
 
 def attach_lora(model, config: FinetuneConfig = DEFAULT_CONFIG, device=None) -> int:
@@ -230,24 +305,29 @@ def train_writer(
     texts: Sequence[str],
     config: FinetuneConfig = DEFAULT_CONFIG,
     device: str = "cpu",
+    others: Sequence[tuple[np.ndarray, str]] | None = None,
 ) -> TrainReport:
     """Fine-tune the attached adapter on one writer's lines and their texts.
 
-    Lines are drawn in shuffled passes, so every line is seen before any repeats.
-    The model is left in eval mode, ready to generate.
+    ``others`` -- lines and texts by other writers -- is required when
+    ``config.context`` is ``"other"``, and each step puts one of them before each
+    of the writer's lines. Lines are drawn in shuffled passes, so every line is
+    seen before any repeats. The model is left in eval mode, ready to generate.
     """
     import torch
 
     if not images or len(images) != len(texts):
         raise ValueError(f"{len(images)} lines for {len(texts)} texts")
+    if config.context == "other" and not others:
+        raise ValueError("context 'other' needs lines by other writers")
     parameters = [p for p in model.parameters() if p.requires_grad]
     if not parameters:
         raise RuntimeError("nothing to train: call attach_lora first")
 
-    prepared = [prepare_line(image) for image in images]
-    optimizer = torch.optim.AdamW(parameters, lr=config.learning_rate)
     rng = random.Random(config.seed)
     torch.manual_seed(config.seed)
+    prepared = [prepare_line(image) for image in images] if config.context == "own" else None
+    optimizer = torch.optim.AdamW(parameters, lr=config.learning_rate)
 
     model.train()
     model.vae.eval()
@@ -256,19 +336,34 @@ def train_writer(
     started = time.perf_counter()
 
     for step in range(config.steps):
-        size = min(config.batch_size, len(prepared))
+        size = min(config.batch_size, len(images))
         while len(order) < size:
-            order.extend(rng.sample(range(len(prepared)), len(prepared)))
+            order.extend(rng.sample(range(len(images)), len(images)))
         picked = [order.pop() for _ in range(size)]
 
-        batch = torch.from_numpy(pad_batch([prepared[i] for i in picked])).to(device)
-        tokens = model.tokenizer([texts[i] for i in picked], return_tensors="pt", padding=True)
-        loss, _, _ = model(
+        if prepared is not None:
+            canvases = [prepared[i] for i in picked]
+            batch_texts = [texts[i] for i in picked]
+            starts = None
+        else:
+            canvases, batch_texts, starts = [], [], []
+            for i in picked:
+                other_image, other_text = others[rng.randrange(len(others))]
+                canvas, start = prepare_pair(other_image, images[i])
+                canvases.append(canvas)
+                batch_texts.append(f"{other_text} {texts[i]}")
+                starts.append(start)
+
+        batch = torch.from_numpy(pad_batch(canvases)).to(device)
+        tokens = model.tokenizer(batch_texts, return_tensors="pt", padding=True)
+        loss, predicted, target = model(
             batch,
             input_ids=tokens.input_ids.to(device),
             attention_mask=tokens.attention_mask.to(device),
             noise=config.noise,
         )
+        if starts is not None:
+            loss = masked_mse(predicted, target, starts)
         if not torch.isfinite(loss):
             raise RuntimeError(f"loss became {loss.item()} at step {step}")
 

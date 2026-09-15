@@ -1,15 +1,12 @@
-"""Several draws per line, and the broken ones rejected before anyone sees them.
+"""Several draws per line, the broken ones rejected, and optionally the best hand kept.
 
 Emuru's output is bimodal. Over 296 held-out lines with one style line, the
 median line read at 9.3% CER -- close to real handwriting -- while 10% came out
 above 90%: two or three words and then a smear of repeated strokes to the end of
 the budget, or nothing. Those are not bad handwriting, they are no handwriting,
-and the model's sampling makes a second draw a genuine second chance. Removing
-the unreadable lines, from generated and real alike, lifted HWD identity from
-56.5% to 67.3% as well as CER from 30.4% to 9.5% -- a bound on what catching them
-could buy, not a measurement of doing it.
+and the model's sampling makes a second draw a genuine second chance.
 
-This module does it. For each line to write:
+This module draws again. For each line to write:
 
 1. order the style lines on offer, best-suited first -- lines between 500 and
    1100px gave 26-28% mean CER and 9-10% failures, lines under 500px 69% and 22%;
@@ -17,26 +14,38 @@ This module does it. For each line to write:
    text itself (CER 30.4% -> 59.6%), so a page is used by selection, never by
    concatenation;
 3. read the draw with a recogniser and score it against the intended text;
-4. stop at the first draw readable enough, otherwise keep the best of the lot.
+4. keep a draw, by one of two rules.
 
-Most lines pass on the first draw, so the extra cost falls on the lines that
-needed it.
+**Readable (T28).** Stop at the first draw readable enough, otherwise keep the
+best-read of the lot. Most lines pass first time, so it cost 1.35 draws a line.
+Measured: CER gap to real 19.1 -> 1.8 points, FID 67.70 -> 55.87, and identity
++8.3 points [2.4, 14.8] paired by writer.
 
-**The selector must not be the judge.** Choosing by one recogniser's reading and
-then reporting CER from the same recogniser rewards its particular mistakes, and
-the figure flatters the method. The evaluation selects with TrOCR-small and
-measures with TrOCR-base; HWD and FID never see a recogniser and are the clean
-measurements of what selection did.
+**Closest to the hand.** Draw every candidate, set aside the unreadable ones, and
+keep the one whose writer embedding is nearest the mean embedding of the style
+lines -- the writer's page. The re-draws that fixed legibility also moved
+identity, which says draws differ in how much of the hand they carry; this picks
+for that directly, at the cost of every draw being made.
+
+**The selector must not be the judge**, in either rule. Choosing by one model's
+opinion and reporting a metric computed by the same model rewards that model's
+particular mistakes. Readability is chosen by TrOCR-small and measured by
+TrOCR-base. Closeness to the hand is chosen by this project's writer embedding
+and measured by HWD, a different network trained on different data -- which
+also means the writer-retrieval figure, computed with that embedding, is no
+longer independent in this mode and should not be read.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from nib.engine.metrics.cer import Recogniser, cer
+from nib.engine.metrics.writer import Embedder
 from nib.models.emuru import EmptyOutputLog, TruncationLog
 from nib.models.generator import (
     EmptyGeneration,
@@ -49,7 +58,7 @@ from nib.models.generator import (
 DEFAULT_CANDIDATES = 4
 
 ACCEPT_CER = 0.5
-"""A draw reading at or below this is kept without drawing again.
+"""A draw reading at or below this counts as readable.
 
 Set to reject the broken tail, not to polish good lines: on cell 6 the median
 line read at 9.3% and the failures above 90%. The selector is TrOCR-small, whose
@@ -87,23 +96,38 @@ def style_order(
     return sorted(range(len(images)), key=key)
 
 
+def _unit(vectors: np.ndarray) -> np.ndarray:
+    vectors = np.asarray(vectors, dtype=np.float64)
+    norms = np.linalg.norm(vectors, axis=-1, keepdims=True)
+    return vectors / np.maximum(norms, 1e-12)
+
+
 @dataclass(frozen=True)
 class Draw:
     image: np.ndarray
     score: float
+    """The selector's CER for this draw."""
+
     style_index: int
     truncated: bool
+    similarity: float | None = None
+    """Cosine similarity to the writer's page, when selecting by hand."""
 
 
 @dataclass
 class SelectionLog:
     """What selection cost and what it rejected."""
 
+    mode: str = "readable"
     requests: int = 0
     draws: int = 0
     first_draw_accepted: int = 0
     none_accepted: int = 0
-    """Requests where no draw met the threshold and the best was kept anyway."""
+    """Requests where no draw was readable and the best-read was kept anyway."""
+
+    moved_by_hand: int = 0
+    """Requests where closeness to the hand chose a different draw than the first
+    readable one would have been -- how often the second rule changed anything."""
 
     chosen_scores: list[float] = field(default_factory=list)
     """The selector's CER for each kept image, in request order."""
@@ -114,32 +138,42 @@ class SelectionLog:
 
     def as_dict(self) -> dict:
         return {
+            "mode": self.mode,
             "requests": self.requests,
             "draws": self.draws,
             "draws_per_request": self.draws_per_request,
             "first_draw_accepted": self.first_draw_accepted,
             "none_accepted": self.none_accepted,
+            "moved_by_hand": self.moved_by_hand,
         }
 
     def summary(self) -> str:
         if not self.requests:
             return "selection       nothing generated yet"
-        return "\n".join(
-            [
-                f"selection       {self.draws} draws for {self.requests} requests "
-                f"({self.draws_per_request:.2f} per request)",
-                f"  {self.first_draw_accepted} accepted on the first draw, "
-                f"{self.none_accepted} kept as the best of an unreadable set",
-                "  scored by the selector, not by the recogniser that measures CER below",
-            ]
-        )
+        lines = [
+            f"selection       {self.draws} draws for {self.requests} requests "
+            f"({self.draws_per_request:.2f} per request), kept by {self.mode}",
+        ]
+        if self.mode == "hand":
+            lines.append(
+                f"  closeness to the hand picked a different draw than the first readable "
+                f"one for {self.moved_by_hand} requests"
+            )
+        else:
+            lines.append(f"  {self.first_draw_accepted} accepted on the first draw")
+        lines += [
+            f"  {self.none_accepted} kept as the best of an unreadable set",
+            "  scored by selectors, not by the models that measure below",
+        ]
+        return "\n".join(lines)
 
 
 class CandidateGenerator:
-    """Wraps any generator: one style line per draw, several draws, best kept.
+    """Wraps any generator: one style line per draw, several draws, one kept.
 
     Satisfies the ``Generator`` interface, so the evaluation and the product use
-    it exactly as they would the model underneath.
+    it exactly as they would the model underneath. Pass ``hand`` to keep the
+    readable draw closest to the style lines instead of the first readable one.
     """
 
     def __init__(
@@ -149,6 +183,7 @@ class CandidateGenerator:
         candidates: int = DEFAULT_CANDIDATES,
         accept_cer: float = ACCEPT_CER,
         width_range: tuple[int, int] = STYLE_WIDTH_RANGE,
+        hand: Embedder | None = None,
     ) -> None:
         if candidates < 1:
             raise GeneratorError(f"need at least one candidate, got {candidates}")
@@ -157,16 +192,19 @@ class CandidateGenerator:
         self.candidates = candidates
         self.accept_cer = accept_cer
         self.width_range = width_range
-        self.selection = SelectionLog()
+        self.hand = hand
+        self.selection = SelectionLog(mode="readable" if hand is None else "hand")
         # Over the images this wrapper returns, not over every draw: a rejected
         # draw that ran to its budget is not in the output and must not be
         # counted as if it were.
         self.truncations = TruncationLog()
         self.empties = EmptyOutputLog()
+        self._pages: dict[str, np.ndarray] = {}
 
     @property
     def name(self) -> str:
-        return f"{self.base.name}+best-of-{self.candidates}"
+        rule = "" if self.hand is None else "-by-hand"
+        return f"{self.base.name}+best-of-{self.candidates}{rule}"
 
     @property
     def output_height(self) -> int:
@@ -177,7 +215,7 @@ class CandidateGenerator:
 
     def _one(self, request: GenerationRequest) -> np.ndarray:
         order = style_order(request.style_images, self.width_range)
-        best: Draw | None = None
+        draws: list[Draw] = []
         empty_draws = 0
         used = 0
 
@@ -187,21 +225,21 @@ class CandidateGenerator:
             if draw is None:
                 empty_draws += 1
                 continue
-            if best is None or draw.score < best.score:
-                best = draw
-            if draw.score <= self.accept_cer:
+            draws.append(draw)
+            if self.hand is None and draw.score <= self.accept_cer:
                 break
 
         self.selection.requests += 1
         self.selection.draws += used
         self.empties.extra_draws += empty_draws
 
-        if best is None:
+        if not draws:
             self.empties.failed.append(request.text)
             raise EmptyGeneration(
                 f"no draw of {self.candidates} produced an image for {request.text!r}"
             )
 
+        best = self._choose(request, draws)
         if empty_draws:
             self.empties.retried += 1
         if used == 1:
@@ -214,6 +252,41 @@ class CandidateGenerator:
         if best.truncated:
             self.truncations.events.append(self._last_truncation(request, best))
         return best.image
+
+    def _choose(self, request: GenerationRequest, draws: list[Draw]) -> Draw:
+        readable = [draw for draw in draws if draw.score <= self.accept_cer]
+        if not readable:
+            return min(draws, key=lambda draw: draw.score)
+        if self.hand is None:
+            return readable[0]
+
+        page = self._page(request)
+        vectors = _unit(self.hand([draw.image for draw in readable]))
+        similarities = vectors @ page
+        scored = [
+            Draw(d.image, d.score, d.style_index, d.truncated, float(s))
+            for d, s in zip(readable, similarities, strict=True)
+        ]
+        best = max(scored, key=lambda draw: draw.similarity)
+        if best.image is not readable[0].image:
+            self.selection.moved_by_hand += 1
+        return best
+
+    def _page(self, request: GenerationRequest) -> np.ndarray:
+        """The writer's page as one unit vector: the mean of its lines' embeddings.
+
+        Cached by content, because every request for a writer carries the same
+        lines and embedding them again for each would be wasted work."""
+        digest = hashlib.sha1()
+        for image in request.style_images:
+            array = np.ascontiguousarray(image)
+            digest.update(str(array.shape).encode())
+            digest.update(array.tobytes())
+        key = digest.hexdigest()
+        if key not in self._pages:
+            embeddings = _unit(self.hand(list(request.style_images)))
+            self._pages[key] = _unit(embeddings.mean(axis=0))
+        return self._pages[key]
 
     def _draw(self, request: GenerationRequest, index: int) -> Draw | None:
         single = GenerationRequest(

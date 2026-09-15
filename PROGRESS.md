@@ -326,9 +326,12 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > Then `scripts/evaluate_finetune.py`: same writers, same targets, with and without.
 >
 > **Ran 2026-09-15, negative -- see "Fine-tuning, as built, does not help"
-> above.** Next direction proposed to Amri: withhold the writer's strokes from the
-> training context so the hand has to live in the weights; or select draws by
-> closeness to the writer's page; both awaiting his choice. What cell 7d ran:
+> above.** Amri chose both directions, in this order: **T30**, keep the draw
+> closest to the hand (cell 7e, 150 lines, then a line-for-line comparison with
+> 7c's first 150 using the images already in `outputs/`); then his pages through
+> the pipeline; and **T31**, the fine-tune with the writer's strokes withheld
+> (cell 7f), because "we feel stuck". Both are coded and verified locally before
+> the GPU runs. What cell 7d ran:
 > notebook cell 7d, after
 > cells 1-4: 24 held-out writers, 16 train lines, 4 targets, 150 steps at rank 8,
 > quality control on both conditions. Read the paired `difference` under HWD
@@ -657,6 +660,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
+| T31 | Fine-tune with the writer's strokes withheld | **code done, run pending** | `--context other --noise 0.5`: each training line placed after a training-split writer's line, loss on the writer's line only (`masked_mse`), teacher noise 0.5 against latent ink std 1.17 (measured) · 5 new tests (17) · notebook cell 7f, the same 24 writers as 7d |
+| T30 | Keep the draw closest to the hand | **code done, run pending** | `--keep hand`: every draw made, unreadable ones set aside, the readable draw nearest the style lines by this project's writer embedding kept; HWD judges · 4 new tests (17) · notebook cell 7e, 150 lines, the same first 150 requests as 7c |
 | T29 | Per-writer fine-tuning on CVL | **done, negative at these settings** | T4, 24 writers: 56 s a writer · identity difference paired by writer +0.1 [-6.8, 6.7] · CER 12.7% -> 19.7% · build: | `nib.models.finetune` + `scripts/evaluate_finetune.py` · 11 tests on a tiny T5 shaped like Emuru · smoke on the real checkpoint, CPU: LoRA 4.72M of 719M (0.66%), adapter 19 MB, fresh adapter and reset both give the released loss exactly (0.48608), 5.8 s a training step, generation runs with the adapter attached · the whole experiment run tiny on CPU (2 writers, 1 step) end to end · notebook cell 7d |
 
 ## Waiting on Amri
@@ -690,6 +695,16 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-15 — T30 and T31 built, both run end to end on CPU before any GPU.**
+  T30 keeps, of every readable draw, the one whose writer embedding is nearest the
+  style lines; the embedding chooses and HWD judges, so writer retrieval is not
+  independent in that mode. Local fake run: 120 draws for 60 requests, identity -0.5%
+  as a typeface must. T31 puts a training-split writer's line before each of the
+  writer's lines, counts the loss on the writer's line only, and raises teacher noise
+  to 0.5 -- after measuring that ink slices have a standard deviation of 1.17, so
+  Emuru's own 0.1 was 9% of it. Local tiny run: training, generation, HWD and CER all
+  complete; with two writers the script declines to judge, as it should.
 
 - **2026-09-15 — T29 run: a minute a writer, and no gain.** 150 LoRA steps took 56 s
   per writer on a T4, which settles the cost. Over the same 24 writers and the same 96

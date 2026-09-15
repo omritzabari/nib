@@ -191,6 +191,78 @@ def test_a_kept_image_that_ran_to_its_budget_is_counted_as_truncated():
     assert len(wrapper.truncations.events) == 1
 
 
+# ---------------------------------------------------------------------------
+# Keeping the draw closest to the hand
+# ---------------------------------------------------------------------------
+
+
+class HandEmbedder:
+    """Style lines embed to the writer's direction; a draw embeds to whatever
+    direction the test assigns its draw number."""
+
+    def __init__(self, directions):
+        self.directions = directions
+        self.calls = 0
+
+    def __call__(self, images):
+        self.calls += 1
+        out = []
+        for image in images:
+            if image.shape[1] != 300:  # a style line, not a scripted draw
+                out.append([1.0, 0.0])
+            else:
+                out.append(self.directions[int(image[30, 10])])
+        return np.array(out, dtype=float)
+
+
+def test_by_hand_every_draw_is_made_and_the_closest_readable_one_kept():
+    base = ScriptedGenerator(["hello world", "hello world", "hello world"])
+    hand = HandEmbedder({1: [0.0, 1.0], 2: [1.0, 0.1], 3: [0.5, 0.5]})
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=3, hand=hand)
+
+    (image,) = wrapper.generate([_request()])
+
+    assert len(base.calls) == 3, "no early stop when choosing by hand"
+    assert int(image[30, 10]) == 2
+    assert wrapper.selection.moved_by_hand == 1
+    assert wrapper.name == "scripted+best-of-3-by-hand"
+
+
+def test_by_hand_an_unreadable_draw_is_never_kept_however_close():
+    base = ScriptedGenerator(["zzzzzzzzzzzzzz", "hello world"])
+    hand = HandEmbedder({1: [1.0, 0.0], 2: [0.0, 1.0]})
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, hand=hand)
+
+    (image,) = wrapper.generate([_request()])
+
+    assert int(image[30, 10]) == 2
+    assert wrapper.selection.moved_by_hand == 0
+
+
+def test_by_hand_with_nothing_readable_the_best_read_is_kept():
+    base = ScriptedGenerator(["zzzzzzzzzz", "hellozzzzzz"])
+    hand = HandEmbedder({1: [1.0, 0.0], 2: [0.0, 1.0]})
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, accept_cer=0.1, hand=hand)
+
+    (image,) = wrapper.generate([_request()])
+
+    assert int(image[30, 10]) == 2
+    assert wrapper.selection.none_accepted == 1
+
+
+def test_the_page_is_embedded_once_for_requests_sharing_its_lines():
+    base = ScriptedGenerator(["hello world"] * 4)
+    hand = HandEmbedder({1: [1.0, 0.0], 2: [1.0, 0.0], 3: [1.0, 0.0], 4: [1.0, 0.0]})
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, hand=hand)
+
+    wrapper.generate([_request(text="hello world")])
+    wrapper.generate([_request(text="hello world")])
+
+    # One call for the page, then one per request for its readable draws.
+    assert hand.calls == 3
+    assert wrapper.selection.as_dict()["mode"] == "hand"
+
+
 def test_zero_candidates_is_refused():
     with pytest.raises(GeneratorError):
         CandidateGenerator(ScriptedGenerator([]), ScriptedReader(), candidates=0)
