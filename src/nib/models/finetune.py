@@ -139,6 +139,7 @@ def attach_lora(model, config: FinetuneConfig = DEFAULT_CONFIG, device=None) -> 
     """
     from peft import LoraConfig, inject_adapter_in_model
 
+    _ignore_stale_torchao()
     for parameter in model.parameters():
         parameter.requires_grad_(False)
 
@@ -156,6 +157,32 @@ def attach_lora(model, config: FinetuneConfig = DEFAULT_CONFIG, device=None) -> 
     for parameter in trainable:
         parameter.requires_grad_(True)
     return sum(parameter.numel() for parameter in trainable)
+
+
+def _ignore_stale_torchao() -> bool:
+    """Stop an old, unused torchao from blocking LoRA. Returns whether it had to.
+
+    For every layer it adapts, peft asks each of its dispatchers whether the
+    layer is theirs. The torchao dispatcher answers by checking torchao's version,
+    and raises when an old one is installed -- which Colab does, 0.10.0 against a
+    required 0.16.0 -- even for a model with no torchao weights in it. The first
+    cell 7d run died there, before training a step. Emuru's weights are ordinary
+    tensors, so the true answer is always "not mine", and it is given directly.
+    """
+    try:
+        from peft.import_utils import is_torchao_available
+
+        is_torchao_available()
+    except ImportError as exc:
+        if "torchao" not in str(exc):
+            raise
+    else:
+        return False
+
+    import peft.tuners.lora.torchao as dispatch
+
+    dispatch.is_torchao_available = lambda: False
+    return True
 
 
 def reset_lora(model) -> int:

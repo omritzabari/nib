@@ -301,6 +301,12 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > after the first writer is the first real figure. 150 steps and lr 2e-4 are
 > starting points, not tuned.
 >
+> The first 7d run died in `attach_lora` before training a step: Colab ships
+> torchao 0.10.0, and peft raises on any torchao under 0.16.0 while merely checking
+> whether a layer is torchao's. Emuru has no torchao weights, so `attach_lora` now
+> answers that check itself when an old torchao is present. Re-run cell 1 to pull,
+> then 7d.
+>
 > **In progress, Amri:** writing out the two passage pages.
 > Use the page by *selection*, not concatenation. For each line to write: pick
 > style lines from the page in the length range that works (500-1100px), draw

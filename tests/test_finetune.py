@@ -176,6 +176,28 @@ def test_reset_returns_the_model_to_its_released_behaviour_exactly():
     torch.testing.assert_close(_outputs(model, LINES, TEXTS), released)
 
 
+def test_an_old_torchao_does_not_stop_the_adapter_being_attached(monkeypatch):
+    """Colab ships torchao 0.10.0; peft raises on anything under 0.16.0 while
+    merely checking whether a layer is torchao's, which killed the first 7d run."""
+    import peft.import_utils
+    import peft.tuners.lora.torchao
+
+    def stale():
+        raise ImportError(
+            "Found an incompatible version of torchao. Found version 0.10.0, "
+            "but only versions above 0.16.0 are supported"
+        )
+
+    monkeypatch.setattr(peft.import_utils, "is_torchao_available", stale)
+    monkeypatch.setattr(peft.tuners.lora.torchao, "is_torchao_available", stale)
+    model = TinyEmuru()
+
+    trainable = finetune.attach_lora(model, FinetuneConfig(dropout=0.0))
+
+    assert trainable > 0
+    assert peft.tuners.lora.torchao.is_torchao_available() is False
+
+
 def test_the_adapter_state_is_only_the_adapter():
     model = TinyEmuru()
     finetune.attach_lora(model, FinetuneConfig())
