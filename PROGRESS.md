@@ -157,6 +157,38 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > lines' worth of prefix it loses where the style ends -- writing style words, or
 > skipping target words. The saved samples decide it without a GPU.
 >
+> ### Fine-tuning, as built, does not help -- T29's run, 2026-09-15
+>
+> Cell 7d: 24 held-out writers, 16 train lines, 4 targets each, generated with
+> Emuru as released and after 150 LoRA steps at rank 8, both through quality
+> control. 96 image pairs, saved to Drive (`results/finetune_w24_t16_s150_r8`).
+>
+> | | released | fine-tuned | |
+> |---|---|---|---|
+> | **training time** | -- | **56 s a writer on a T4** (max 59) | |
+> | train loss, first tenth -> last | -- | 0.41 -> 0.26 on average | |
+> | HWD identity | 53.7% [46.6, 59.7] | 53.8% [47.8, 59.0] | |
+> | **difference, paired by writer** | | **+0.1 [-6.8, 6.7]** | none |
+> | own writer nearest | 83.3% | 79.2% | chance 4.2% |
+> | HWD distance | 2.22 | 2.36 | worse |
+> | CER | 12.7% [9.3, 17.1] | 19.7% [15.7, 23.9] | worse, overlapping |
+>
+> **Cost answered, benefit not there.** A minute a writer is a reasonable time per
+> user. But identity did not move at all, and the text got harder to read. The
+> fine-tune learned its training lines -- loss down 37% -- and none of it carried
+> to new lines as identity.
+>
+> **A likely reason, unverified.** Training is teacher-forced: every slice is
+> predicted from the text and *the writer's own preceding slices*. The hand is
+> always in the context, so nothing pushes it into the adapter's weights -- the
+> model only has to continue in the style it can see, which it already does
+> zero-shot. What it can pick up instead is these particular lines, which fits
+> CER rising. If so, style has to be *withheld* from the context during training
+> for the weights to carry it: a prefix from another writer, or none.
+>
+> Not compared with 7c's 65%: 24 writers here against 85, and a style pool of 16
+> lines against 4. The comparison that counts is the paired one within this run.
+>
 > ### Quality control works -- T28's run, 2026-09-14
 >
 > Cell 7c: 300 requests, a pool of four style lines each, up to four draws, the
@@ -293,7 +325,11 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > preparation with white after the text, LoRA attach and reset, a training loop.
 > Then `scripts/evaluate_finetune.py`: same writers, same targets, with and without.
 >
-> **Both written and verified locally; the run is next. Notebook cell 7d**, after
+> **Ran 2026-09-15, negative -- see "Fine-tuning, as built, does not help"
+> above.** Next direction proposed to Amri: withhold the writer's strokes from the
+> training context so the hand has to live in the weights; or select draws by
+> closeness to the writer's page; both awaiting his choice. What cell 7d ran:
+> notebook cell 7d, after
 > cells 1-4: 24 held-out writers, 16 train lines, 4 targets, 150 steps at rank 8,
 > quality control on both conditions. Read the paired `difference` under HWD
 > identity, `training` seconds per writer, and CER for both. Training time on a
@@ -621,7 +657,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
-| T29 | Per-writer fine-tuning on CVL | **code done, run pending** | `nib.models.finetune` + `scripts/evaluate_finetune.py` · 11 tests on a tiny T5 shaped like Emuru · smoke on the real checkpoint, CPU: LoRA 4.72M of 719M (0.66%), adapter 19 MB, fresh adapter and reset both give the released loss exactly (0.48608), 5.8 s a training step, generation runs with the adapter attached · the whole experiment run tiny on CPU (2 writers, 1 step) end to end · notebook cell 7d |
+| T29 | Per-writer fine-tuning on CVL | **done, negative at these settings** | T4, 24 writers: 56 s a writer · identity difference paired by writer +0.1 [-6.8, 6.7] · CER 12.7% -> 19.7% · build: | `nib.models.finetune` + `scripts/evaluate_finetune.py` · 11 tests on a tiny T5 shaped like Emuru · smoke on the real checkpoint, CPU: LoRA 4.72M of 719M (0.66%), adapter 19 MB, fresh adapter and reset both give the released loss exactly (0.48608), 5.8 s a training step, generation runs with the adapter attached · the whole experiment run tiny on CPU (2 writers, 1 step) end to end · notebook cell 7d |
 
 ## Waiting on Amri
 
@@ -654,6 +690,15 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-15 — T29 run: a minute a writer, and no gain.** 150 LoRA steps took 56 s
+  per writer on a T4, which settles the cost. Over the same 24 writers and the same 96
+  target lines, identity moved +0.1 points [-6.8, 6.7] and CER rose from 12.7% to
+  19.7%. Training loss fell 37%, so the adapter learned -- the lines, apparently, not
+  the hand. Working hypothesis: teacher forcing keeps the writer's own strokes in the
+  context at every step, so nothing needs to live in the weights. The first attempt
+  died on Colab's torchao 0.10.0, which peft rejects while checking a layer it would
+  never have claimed.
 
 - **2026-09-15 — T29 built: per-writer LoRA fine-tuning, and the experiment that
   judges it.** `nib.models.finetune` prepares a writer's lines as Emuru trained on
