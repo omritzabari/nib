@@ -289,6 +289,39 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > Cost, for the product: four draws always, about 42 s a line on a T4, against
 > about 13 s a line for keeping the first readable draw.
 >
+> ### Withholding the hand makes the fine-tune worse -- T31's run, 2026-09-16
+>
+> Cell 7f: the same 24 writers, 16 train lines and 4 targets as 7d, each training
+> line placed after a training-split writer's line, loss on the writer's line only,
+> teacher noise 0.5. 96 image pairs, saved to Drive
+> (`results/finetune_w24_t16_s150_r8_other_n0.5`). Ran on the code before T34/T35.
+>
+> | | released | fine-tuned | |
+> |---|---|---|---|
+> | training | -- | 75 s a writer (max 79), against 56 in 7d | |
+> | train loss, first tenth -> last | -- | 0.70 -> 0.47 (-34%) | |
+> | HWD identity | 53.6% [47.1, 59.5] | **35.7% [30.5, 41.4]** | |
+> | **difference, paired by writer** | | **-17.9 [-24.7, -11.1]** | **real, and negative** |
+> | own writer nearest | 79.2% | 54.2% | chance 4.2% |
+> | HWD distance | 2.22 | **3.26** | real 0.77 |
+> | CER | 12.5% [8.6, 17.7] | 18.5% [12.8, 24.9] | real 11.0% |
+>
+> **The criterion, set before the run -- a difference above zero, CER not clearly
+> worse -- failed the other way.** The released side reproduced 7d (53.7% and
+> 12.7% there) on fresh draws, so the harness is steady and the drop is the
+> adapter's. Distance rose to 3.26, beyond the 2.99 a typeface scored against other
+> references: the output moved away from handwriting in general, not only from
+> this writer.
+>
+> **A likely reason, unverified.** Emuru's identity comes from copying the hand of
+> the line before it. Training with another writer's line in that place teaches
+> the model the opposite -- that the line before says nothing about the hand to
+> write -- and 150 steps on 16 lines cannot store the hand in its place. Noise 0.5
+> is confounded with it; separating them costs two more 70-minute runs.
+>
+> **Per-writer LoRA fine-tuning is closed at these settings**: no gain with the
+> hand in context (7d), a clear loss with it withheld (7f).
+>
 > ### Fine-tuning, as built, does not help -- T29's run, 2026-09-15
 >
 > Cell 7d: 24 held-out writers, 16 train lines, 4 targets each, generated with
@@ -796,7 +829,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T34 | Style line widened to whole VAE slices | **code done, GPU check pending** | the released VAE encodes floor(w/8) slices on widths 800-809, so up to 7 px of style went unseen and the cut landed inside the new line · cell 6: sliver starts 4.9% at w%8=0 -> 11.3% at 6-7 · `_as_tensor` pads with white · 4 new tests · 457 passed with T35 · check: next 7g, stray starts down, empties not up |
 | T33 | The system on Amri's own page | **run done: "not bad, still far from my hand"** | T4, 2026-09-16: 22 of 22 lines split, page 2 written 22 of 22 · CER on 5 targets real 8.7% [6.7, 10.7], generated 10.6% [7.1, 14.1] · 108 draws for 27 requests, hand moved the pick in 24 · no identity figure for one writer · build: | `scripts/probe_writer.py`: splits a dictated page, refuses a line count that does not match the passage, sets aside `--skip` lines, learns from 10 lines and writes 5 others again for comparison, then writes page 2's text in the hand · `comparison.png`, `written.png`, `blind/` pairs with `key.json` · notebook cell 7g; needs `MyDrive/nib/personal/passage_page1.jpg` |
 | T32 | Segmentation of a real passage page | **done** | Amri's `passage_page1.jpg` (pen, lined paper, 2792px): 22 of 22 lines · two fixes found by looking at the crops: never shrink a photo by more than 20% (thin strokes fell below every threshold at 1600px -- "Uri" lost its U, "P.S." its P), and small marks join the nearest letter rather than the nearest line centre, which brings dots, commas and full stops back · the five squared-paper photos unchanged at 13 lines (dim still xfail) |
-| T31 | Fine-tune with the writer's strokes withheld | **code done, run pending** | `--context other --noise 0.5`: each training line placed after a training-split writer's line, loss on the writer's line only (`masked_mse`), teacher noise 0.5 against latent ink std 1.17 (measured) · 5 new tests (17) · notebook cell 7f, the same 24 writers as 7d |
+| T31 | Fine-tune with the writer's strokes withheld | **done, negative** | T4, 24 writers: identity difference paired by writer **-17.9 [-24.7, -11.1]** (53.6% -> 35.7%) · HWD distance 2.22 -> 3.26 · CER 12.5% -> 18.5% · 75 s a writer · per-writer LoRA closed at these settings · build: `--context other --noise 0.5`: each training line placed after a training-split writer's line, loss on the writer's line only (`masked_mse`), teacher noise 0.5 against latent ink std 1.17 (measured) · 5 new tests (17) · notebook cell 7f, the same 24 writers as 7d |
 | T30 | Keep the draw closest to the hand | **done, gain not proven** | paired over the same 150 lines, one reference: identity +5.2 points [-0.5, 10.1], CER +2.0 [-0.3, 4.4] · kept as an option, not the default · run: T4, 150 lines: identity **69.8% [64.5, 75.2]** (7c over 300: 65.0% [60.3, 69.6]) · CER 12.0% against 10.8% real, gap +1.1 · FID 54.11 [50.02, 58.20] · the hand changed the pick in 100 of 150 · 600 draws in 105.6 min, 10.6 s a draw · writer retrieval 35.3% is NOT independent here · build: | `--keep hand`: every draw made, unreadable ones set aside, the readable draw nearest the style lines by this project's writer embedding kept; HWD judges · 4 new tests (17) · notebook cell 7e, 150 lines, the same first 150 requests as 7c |
 | T29 | Per-writer fine-tuning on CVL | **done, negative at these settings** | T4, 24 writers: 56 s a writer · identity difference paired by writer +0.1 [-6.8, 6.7] · CER 12.7% -> 19.7% · build: | `nib.models.finetune` + `scripts/evaluate_finetune.py` · 11 tests on a tiny T5 shaped like Emuru · smoke on the real checkpoint, CPU: LoRA 4.72M of 719M (0.66%), adapter 19 MB, fresh adapter and reset both give the released loss exactly (0.48608), 5.8 s a training step, generation runs with the adapter attached · the whole experiment run tiny on CPU (2 writers, 1 step) end to end · notebook cell 7d |
 
@@ -831,6 +864,14 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-16 — T31 run: withholding the hand makes the fine-tune clearly worse.**
+  Same 24 writers and targets as 7d, another writer's line before each training line,
+  teacher noise 0.5: identity fell from 53.6% to 35.7%, a paired difference of -17.9
+  points [-24.7, -11.1], and HWD distance rose past where a typeface sits. The released
+  side reproduced 7d. Likely, training against a different hand in the prefix unlearns
+  the in-context copying that Emuru's identity comes from. With 7d's null result, per-
+  writer LoRA fine-tuning is closed at these settings.
 
 - **2026-09-16 — T35: writing beyond the text no longer passes as readable.** Two of
   the 27 lines on Amri's page ran on past their text and passed selection at 50% CER.
