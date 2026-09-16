@@ -157,6 +157,36 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > lines' worth of prefix it loses where the style ends -- writing style words, or
 > skipping target words. The saved samples decide it without a GPU.
 >
+> ### The system on Amri's own page -- T33's run, 2026-09-16
+>
+> Cell 7g on a T4: `passage_page1.jpg` split into 22 of 22 lines, lines 2, 6, 18-22
+> set aside, learned from lines 1, 4, 5, 8, 9, 11, 12, 14, 15, 17, and lines 3, 7, 10,
+> 13, 16 written again without being shown. `--keep hand`. Saved to Drive,
+> `results/probe_passage_page1`.
+>
+> | | |
+> |---|---|
+> | targets generated | 5 of 5 |
+> | page 2, a text never written | **22 of 22 lines**, none missing |
+> | CER on the 5 targets, TrOCR-base | real **8.7%** [6.7, 10.7] · generated **10.6%** [7.1, 14.1] · gap +1.9 |
+> | selection | 108 draws for 27 requests (4.00 each) · 0 kept as the best of an unreadable set |
+> | the hand changed the pick | 24 of 27 (89%) -- 100 of 150 (67%) on CVL in 7e |
+>
+> **It works end to end on a real user.** Every line of page 2 came out readable,
+> and the generated targets read about as well as his own lines -- a gap of 1.9
+> points, where CVL gave 1.8 under the same selection. Five lines, about 200
+> characters: the intervals overlap and are wide. CER is partly flattered, as in
+> 7c: TrOCR-small rejected the unreadable draws, TrOCR-base measured.
+>
+> **What these figures cannot say is whether it is his hand.** The run has no
+> identity figure -- HWD identity needs many writers -- and 89% is not evidence
+> that the embedding knows him: it was trained on CVL, and a rule picking at random
+> among the readable draws would move the pick up to three times in four. Whether
+> it looks like him is decided by eye on `comparison.png` and `written.png` (the
+> CPU dry run did not carry his "y"), and then by the blind pairs.
+>
+> **Pending:** the images, downloaded from Drive into `outputs/probe_passage_page1/`.
+>
 > ### Keeping the draw closest to the hand -- T30's run, 2026-09-15
 >
 > Cell 7e: the first 150 of 7c's requests, all four draws made, the readable one
@@ -699,7 +729,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
-| T33 | The system on Amri's own page | **code done, run pending; cell 7g now keeps the draw closest to the hand** | `scripts/probe_writer.py`: splits a dictated page, refuses a line count that does not match the passage, sets aside `--skip` lines, learns from 10 lines and writes 5 others again for comparison, then writes page 2's text in the hand · `comparison.png`, `written.png`, `blind/` pairs with `key.json` · notebook cell 7g; needs `MyDrive/nib/personal/passage_page1.jpg` |
+| T33 | The system on Amri's own page | **run done, images to be looked at** | T4, 2026-09-16: 22 of 22 lines split, page 2 written 22 of 22 · CER on 5 targets real 8.7% [6.7, 10.7], generated 10.6% [7.1, 14.1] · 108 draws for 27 requests, hand moved the pick in 24 · no identity figure for one writer · build: | `scripts/probe_writer.py`: splits a dictated page, refuses a line count that does not match the passage, sets aside `--skip` lines, learns from 10 lines and writes 5 others again for comparison, then writes page 2's text in the hand · `comparison.png`, `written.png`, `blind/` pairs with `key.json` · notebook cell 7g; needs `MyDrive/nib/personal/passage_page1.jpg` |
 | T32 | Segmentation of a real passage page | **done** | Amri's `passage_page1.jpg` (pen, lined paper, 2792px): 22 of 22 lines · two fixes found by looking at the crops: never shrink a photo by more than 20% (thin strokes fell below every threshold at 1600px -- "Uri" lost its U, "P.S." its P), and small marks join the nearest letter rather than the nearest line centre, which brings dots, commas and full stops back · the five squared-paper photos unchanged at 13 lines (dim still xfail) |
 | T31 | Fine-tune with the writer's strokes withheld | **code done, run pending** | `--context other --noise 0.5`: each training line placed after a training-split writer's line, loss on the writer's line only (`masked_mse`), teacher noise 0.5 against latent ink std 1.17 (measured) · 5 new tests (17) · notebook cell 7f, the same 24 writers as 7d |
 | T30 | Keep the draw closest to the hand | **done, gain not proven** | paired over the same 150 lines, one reference: identity +5.2 points [-0.5, 10.1], CER +2.0 [-0.3, 4.4] · kept as an option, not the default · run: T4, 150 lines: identity **69.8% [64.5, 75.2]** (7c over 300: 65.0% [60.3, 69.6]) · CER 12.0% against 10.8% real, gap +1.1 · FID 54.11 [50.02, 58.20] · the hand changed the pick in 100 of 150 · 600 draws in 105.6 min, 10.6 s a draw · writer retrieval 35.3% is NOT independent here · build: | `--keep hand`: every draw made, unreadable ones set aside, the readable draw nearest the style lines by this project's writer embedding kept; HWD judges · 4 new tests (17) · notebook cell 7e, 150 lines, the same first 150 requests as 7c |
@@ -736,6 +766,13 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-16 — T33 run: the whole system on Amri's page, on a GPU.** Cell 7g learned
+  from 10 of his lines, wrote 5 others again and all 22 lines of page 2, with nothing
+  lost: 108 draws, none of the 27 requests left without a readable one. The generated
+  targets read at 10.6% CER against 8.7% for his own lines. Whether it is his hand is
+  not in the numbers; the images decide it. The Emuru remote code downloaded fresh
+  again -- the revision is still not pinned.
 
 - **2026-09-15 — the first line in Amri's own hand.** Amri wrote page 1 of the dictated
   passage in pen on lined paper; page 2 will not be written, so the probe works from
