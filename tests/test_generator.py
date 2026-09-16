@@ -379,6 +379,59 @@ def test_the_empty_log_names_what_was_excluded():
 
 
 # ---------------------------------------------------------------------------
+# where the style ends and the new line begins
+#
+# Emuru's VAE encodes floor(width / 8) slices, so the last width % 8 pixels of a
+# style line never reach the model, and the output is cut at the style image's
+# full width -- up to 7 pixels into what was generated after it. Measured with
+# the released VAE on widths 800 to 809.
+# ---------------------------------------------------------------------------
+
+
+def emuru_converter():
+    """An EmuruGenerator that can only convert images, with no checkpoint."""
+    torch = pytest.importorskip("torch", reason="torch is an optional extra")
+    from nib.models.emuru import EmuruGenerator
+
+    generator = object.__new__(EmuruGenerator)
+    generator.torch = torch
+    generator.device = torch.device("cpu")
+    return generator
+
+
+def test_a_style_line_reaches_the_model_on_a_whole_number_of_slices():
+    image = np.full((64, 805), 255, np.uint8)
+    image[20:40, 790:803] = 0  # ink reaching into the last partial slice
+
+    tensor = emuru_converter()._as_tensor(image)
+
+    assert tensor.shape[-1] == 808
+
+
+def test_the_widening_is_white_and_the_line_is_untouched():
+    image = np.full((64, 805), 255, np.uint8)
+    image[20:40, 790:803] = 0
+
+    tensor = emuru_converter()._as_tensor(image)[0, 0].numpy()
+
+    widening = tensor[:, 805:]
+    assert widening.shape[1] == 3 and np.all(widening == 1.0)
+    np.testing.assert_allclose(tensor[:, :805], image / 127.5 - 1.0, atol=1e-6)
+
+
+def test_a_style_line_already_on_a_slice_boundary_is_not_widened():
+    image = np.full((64, 800), 255, np.uint8)
+
+    assert emuru_converter()._as_tensor(image).shape[-1] == 800
+
+
+def test_a_rescaled_style_line_also_lands_on_a_slice_boundary():
+    image = np.full((100, 1311), 255, np.uint8)
+
+    assert emuru_converter()._as_tensor(image).shape[-1] % 8 == 0
+
+
+# ---------------------------------------------------------------------------
 # the stand-in generator
 # ---------------------------------------------------------------------------
 

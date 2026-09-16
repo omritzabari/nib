@@ -210,6 +210,33 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > Not worth a blind test yet: the author himself sees the difference.
 >
+> **Line starts: a cut in the wrong place, found and fixed (T34), not yet run.**
+> Emuru's VAE encodes `floor(width / 8)` slices -- measured with the released
+> `emuru_vae` on widths 800-809 -- and `generate` cuts its output at the style
+> image's full width. On any width not divisible by 8 the last `width % 8` pixels
+> of the style line never reach the model, and the cut lands up to 7 px inside the
+> new line. On cell 6's saved 296 lines, rebuilt from the seed, outputs opening on
+> a sliver (a first ink cluster of 12 px or less, before a gap, when the first word
+> has 3+ letters) rose with `width % 8`: 4.9% at 0 (n 41), 5.8% at 1-3, 8.6% at 4-5,
+> 11.3% at 6-7 (n 71). By eye the flagged ones are both kinds: the tail of the
+> style line ("n species") and a clipped first letter ("( isdaining", "howd"). 23
+> events -- a trend, not proven. On Amri's page the four style lines drawn from
+> were 11, 12, 4, 1; line 11 ("14.50.") is 847 px wide, `% 8` = 7 against a 5 px
+> margin, so its final full stop is shaved -- and three outputs open on a full
+> stop. `EmuruGenerator._as_tensor` now widens every style line with white to a
+> whole slice, as `finetune.prepare_line` already did for training. The check is
+> the next 7g run: stray starts should fall, empty outputs must not rise.
+>
+> **Line ends: junk after the text, not fixed -- needs a decision.** Read locally
+> with TrOCR-base: "about the t.t. 1/" scores 27.8% CER and "cafe : he" 15.4%, both
+> far under the 50% that counts as readable. A rule that rejects a draw with
+> extra characters beyond the target's ends is the obvious fix, but TrOCR also
+> puts a space before every punctuation mark ("dream ." -- target 13 is read
+> word for word and still scores 4.9%, all of it those spaces; real lines pay it
+> too), so a naive length check would
+> reject good lines. It has to be calibrated on real lines with TrOCR-small, the
+> selector, which is not cached locally.
+>
 > ### Keeping the draw closest to the hand -- T30's run, 2026-09-15
 >
 > Cell 7e: the first 150 of 7c's requests, all four draws made, the readable one
@@ -752,6 +779,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
+| T34 | Style line widened to whole VAE slices | **code done, GPU check pending** | the released VAE encodes floor(w/8) slices on widths 800-809, so up to 7 px of style went unseen and the cut landed inside the new line · cell 6: sliver starts 4.9% at w%8=0 -> 11.3% at 6-7 · `_as_tensor` pads with white · 4 new tests · check: next 7g, stray starts down, empties not up |
 | T33 | The system on Amri's own page | **run done: "not bad, still far from my hand"** | T4, 2026-09-16: 22 of 22 lines split, page 2 written 22 of 22 · CER on 5 targets real 8.7% [6.7, 10.7], generated 10.6% [7.1, 14.1] · 108 draws for 27 requests, hand moved the pick in 24 · no identity figure for one writer · build: | `scripts/probe_writer.py`: splits a dictated page, refuses a line count that does not match the passage, sets aside `--skip` lines, learns from 10 lines and writes 5 others again for comparison, then writes page 2's text in the hand · `comparison.png`, `written.png`, `blind/` pairs with `key.json` · notebook cell 7g; needs `MyDrive/nib/personal/passage_page1.jpg` |
 | T32 | Segmentation of a real passage page | **done** | Amri's `passage_page1.jpg` (pen, lined paper, 2792px): 22 of 22 lines · two fixes found by looking at the crops: never shrink a photo by more than 20% (thin strokes fell below every threshold at 1600px -- "Uri" lost its U, "P.S." its P), and small marks join the nearest letter rather than the nearest line centre, which brings dots, commas and full stops back · the five squared-paper photos unchanged at 13 lines (dim still xfail) |
 | T31 | Fine-tune with the writer's strokes withheld | **code done, run pending** | `--context other --noise 0.5`: each training line placed after a training-split writer's line, loss on the writer's line only (`masked_mse`), teacher noise 0.5 against latent ink std 1.17 (measured) · 5 new tests (17) · notebook cell 7f, the same 24 writers as 7d |
@@ -789,6 +817,15 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-16 — T34: the style line reaches Emuru on whole slices.** Following the
+  stray marks at the start of Amri's lines, the released VAE turned out to encode
+  `floor(width / 8)` slices while Emuru cuts its output at the full style width -- up
+  to 7 px of style unseen, and the cut up to 7 px inside the new line. The rate of
+  outputs opening on a sliver in cell 6 rose from 4.9% to 11.3% with `width % 8`.
+  Style lines are now padded with white to a whole slice, as training lines already
+  were. Every earlier run carried the misalignment; runs from here on do not, which
+  is worth remembering when comparing across that line.
 
 - **2026-09-16 — T33 run: the whole system on Amri's page, on a GPU.** Cell 7g learned
   from 10 of his lines, wrote 5 others again and all 22 lines of page 2, with nothing

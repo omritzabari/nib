@@ -345,6 +345,15 @@ class EmuruGenerator:
         [-1,1] produced a blob. [-1,1] with ink dark produced the only legible
         letter. That matches the model's own output convention, which is
         ``(x + 1) / 2`` -- its VAE works in [-1, 1] and expects the same going in.
+
+        **Widened with white to a whole number of slices.** The VAE encodes
+        ``floor(width / 8)`` slices -- measured with the released VAE on widths 800
+        to 809 -- while the model cuts its output at the style image's full width.
+        So on any other width the last ``width % 8`` pixels of the style line never
+        reach the model, and the cut lands up to 7 pixels inside the new line. Over
+        cell 6's 296 lines, outputs opening on a sliver of a letter rose from 4.9%
+        at ``width % 8 == 0`` to 11.3% at 6-7. Training lines are prepared the same
+        way, in :func:`nib.models.finetune.prepare_line`.
         """
         array = np.asarray(image)
         if array.ndim != 2:
@@ -357,6 +366,10 @@ class EmuruGenerator:
                 (max(1, round(array.shape[1] * scale)), NATIVE_HEIGHT),
                 interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC,
             )
+
+        short = -array.shape[1] % PIXELS_PER_TOKEN
+        if short:
+            array = np.pad(array, ((0, 0), (0, short)), constant_values=255)
 
         tensor = self.torch.from_numpy(array.astype(np.float32) / 127.5 - 1.0)
         return tensor.unsqueeze(0).repeat(3, 1, 1).unsqueeze(0).to(self.device)
