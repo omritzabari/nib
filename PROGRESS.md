@@ -210,6 +210,32 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >
 > Not worth a blind test yet: the author himself sees the difference.
 >
+> **The smaller letters are framing -- and cropping them tight makes identity worse.**
+> On CVL too: real lines are cropped to the ink (0 white rows above and below,
+> median), Emuru's lines carry 7 above and 7 below, an ink band of 48 of 64 rows. So
+> in the same 64px band the letter body reads 17px against 22-23 (cell 6 and 7c,
+> smaller on 83% and 89% of lines), ink per character 60 against 93. Tested without
+> a GPU on 7c's saved 300 lines, locally -- where HWD reproduced the Colab figures
+> exactly (identity 65.0% [60.3, 69.6], distance 1.939, nearest 58.8%) -- by cropping
+> each generated line to its ink and rescaling it to 64px:
+>
+> | 286 lines, one reference | identity | HWD distance | own writer nearest |
+> |---|---|---|---|
+> | as generated | 65.0% [60.3, 69.6] | 1.939 | 58.8% |
+> | cropped tight to the ink | 60.3% [55.5, 65.0] | 2.128 | 52.9% |
+> | **difference, paired by writer** | **-4.7 [-7.2, -2.3]** | | |
+>
+> So the metric was not understating Emuru through framing, and a tight crop does
+> not belong in the output on identity grounds. Unverified reading: Emuru's strokes
+> are already as thick as the writer's at the smaller size (2.49 against 2.63 on
+> Amri's page), so scaling the line up by a third thickens the pen along with the
+> letters. Whether showing Emuru its style lines framed the way it writes changes
+> anything is a separate question, which only a GPU run answers.
+>
+> Local HWD on Windows needs `num_workers=0`: the package's DataLoader starts a
+> worker, the worker re-runs the calling script, and the first attempt hung for 13
+> minutes at zero CPU. 164 s on CPU for 950 reference lines and three sets of 286.
+>
 > **Line starts: a cut in the wrong place, found and fixed (T34), not yet run.**
 > Emuru's VAE encodes `floor(width / 8)` slices -- measured with the released
 > `emuru_vae` on widths 800-809 -- and `generate` cuts its output at the style
