@@ -171,7 +171,23 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > | FID | 55.87 | 54.11 [50.02, 58.20] |
 > | truncated | 0.3% | 2.0% |
 >
-> Up by 4.8 points on identity, but **not yet a finding**: different sample counts,
+> **Line for line, against one reference: close, not proven.** Both runs' first 150
+> requests are identical by key. Scored locally against 7e's reference (861 lines,
+> 73 writers, 147 lines kept):
+>
+> | same 150 lines | 7c first readable | 7e closest hand | difference, paired |
+> |---|---|---|---|
+> | HWD identity | 64.6% [58.7, 70.0] | 69.8% [64.5, 75.2] | **+5.2 [-0.5, 10.1]** by writer |
+> | HWD distance | 2.210 | 2.004 | |
+> | own writer nearest | 56.2% | 63.0% | chance 1.4% |
+> | CER (TrOCR-base) | 9.9% | 12.0% | +2.0 [-0.3, 4.4] by line |
+>
+> Identity rose for 66% of writers and the interval's lower end is -0.5: very likely
+> a real gain of a few points, but it does not clear zero at 150 lines. It also
+> costs a little legibility, again not clearly. So: kept as an option for when
+> likeness matters more than time, not made the default; 7c's rule stays default.
+>
+> The first reading of it, before the paired test: up by 4.8 points on identity, but **not yet a finding**: different sample counts,
 > a different reference (73 writers against 85), and overlapping intervals. The
 > sharp test is line for line over the same 150 requests -- 7c's first 150 are in
 > `outputs/` already; 7e's need downloading. Writer retrieval rose to 35.3%, and
@@ -686,7 +702,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T33 | The system on Amri's own page | **code done, run pending; cell 7g now keeps the draw closest to the hand** | `scripts/probe_writer.py`: splits a dictated page, refuses a line count that does not match the passage, sets aside `--skip` lines, learns from 10 lines and writes 5 others again for comparison, then writes page 2's text in the hand · `comparison.png`, `written.png`, `blind/` pairs with `key.json` · notebook cell 7g; needs `MyDrive/nib/personal/passage_page1.jpg` |
 | T32 | Segmentation of a real passage page | **done** | Amri's `passage_page1.jpg` (pen, lined paper, 2792px): 22 of 22 lines · two fixes found by looking at the crops: never shrink a photo by more than 20% (thin strokes fell below every threshold at 1600px -- "Uri" lost its U, "P.S." its P), and small marks join the nearest letter rather than the nearest line centre, which brings dots, commas and full stops back · the five squared-paper photos unchanged at 13 lines (dim still xfail) |
 | T31 | Fine-tune with the writer's strokes withheld | **code done, run pending** | `--context other --noise 0.5`: each training line placed after a training-split writer's line, loss on the writer's line only (`masked_mse`), teacher noise 0.5 against latent ink std 1.17 (measured) · 5 new tests (17) · notebook cell 7f, the same 24 writers as 7d |
-| T30 | Keep the draw closest to the hand | **run, paired comparison pending** | T4, 150 lines: identity **69.8% [64.5, 75.2]** (7c over 300: 65.0% [60.3, 69.6]) · CER 12.0% against 10.8% real, gap +1.1 · FID 54.11 [50.02, 58.20] · the hand changed the pick in 100 of 150 · 600 draws in 105.6 min, 10.6 s a draw · writer retrieval 35.3% is NOT independent here · build: | `--keep hand`: every draw made, unreadable ones set aside, the readable draw nearest the style lines by this project's writer embedding kept; HWD judges · 4 new tests (17) · notebook cell 7e, 150 lines, the same first 150 requests as 7c |
+| T30 | Keep the draw closest to the hand | **done, gain not proven** | paired over the same 150 lines, one reference: identity +5.2 points [-0.5, 10.1], CER +2.0 [-0.3, 4.4] · kept as an option, not the default · run: T4, 150 lines: identity **69.8% [64.5, 75.2]** (7c over 300: 65.0% [60.3, 69.6]) · CER 12.0% against 10.8% real, gap +1.1 · FID 54.11 [50.02, 58.20] · the hand changed the pick in 100 of 150 · 600 draws in 105.6 min, 10.6 s a draw · writer retrieval 35.3% is NOT independent here · build: | `--keep hand`: every draw made, unreadable ones set aside, the readable draw nearest the style lines by this project's writer embedding kept; HWD judges · 4 new tests (17) · notebook cell 7e, 150 lines, the same first 150 requests as 7c |
 | T29 | Per-writer fine-tuning on CVL | **done, negative at these settings** | T4, 24 writers: 56 s a writer · identity difference paired by writer +0.1 [-6.8, 6.7] · CER 12.7% -> 19.7% · build: | `nib.models.finetune` + `scripts/evaluate_finetune.py` · 11 tests on a tiny T5 shaped like Emuru · smoke on the real checkpoint, CPU: LoRA 4.72M of 719M (0.66%), adapter 19 MB, fresh adapter and reset both give the released loss exactly (0.48608), 5.8 s a training step, generation runs with the adapter attached · the whole experiment run tiny on CPU (2 writers, 1 step) end to end · notebook cell 7d |
 
 ## Waiting on Amri
