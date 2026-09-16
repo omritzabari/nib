@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nib.models.candidates import CandidateGenerator, style_order
+from nib.models.candidates import CandidateGenerator, overrun, style_order
 from nib.models.emuru import Truncation, TruncationLog
 from nib.models.generator import EmptyGeneration, GenerationRequest, GeneratorError
 
@@ -192,6 +192,71 @@ def test_a_kept_image_that_ran_to_its_budget_is_counted_as_truncated():
 
 
 # ---------------------------------------------------------------------------
+# Writing beyond the text
+#
+# A draw can write the whole line and then keep going -- "about the t.t. 1/",
+# "cafe: Te-Te" -- and still read under the CER threshold, because the extra
+# characters are few against the line's length.
+# ---------------------------------------------------------------------------
+
+
+def test_writing_after_the_text_is_counted():
+    assert overrun("hello world te Te", "hello world") == 4
+
+
+def test_a_stray_mark_before_the_text_is_counted():
+    assert overrun(". hello world", "hello world") == 1
+
+
+def test_the_larger_end_is_what_counts():
+    assert overrun("xx hello world yyy", "hello world") == 3
+
+
+def test_the_space_a_reader_puts_before_punctuation_costs_nothing():
+    assert overrun("his dream .", "his dream.") == 0
+
+
+def test_a_misread_letter_inside_the_line_is_not_writing_beyond_it():
+    assert overrun("hellu world", "hello world") == 0
+
+
+def test_a_draw_that_keeps_writing_after_the_text_is_redrawn():
+    # 35% CER: readable by that measure alone.
+    base = ScriptedGenerator(["hello world again te Te", "hello world again"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    (image,) = wrapper.generate([_request(text="hello world again")])
+
+    assert len(base.calls) == 2
+    assert int(image[30, 10]) == 2
+    assert wrapper.selection.rejected_for_overrun == 1
+    assert "1 read well but wrote beyond the text" in wrapper.selection.summary()
+
+
+def test_a_single_extra_character_is_tolerated():
+    """Readers add a full stop or a quote to real lines too."""
+    base = ScriptedGenerator(["hello world.", "never used"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    wrapper.generate([_request()])
+
+    assert len(base.calls) == 1
+    assert wrapper.selection.rejected_for_overrun == 0
+
+
+def test_when_every_draw_writes_beyond_the_text_the_best_read_is_kept_and_counted():
+    # The first reads at 35% CER and writes on; the second stays inside the text
+    # and reads at 59%. Neither is acceptable, and the better-read one is kept.
+    base = ScriptedGenerator(["hello world again te Te", "zzzzz zzzzz again"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2)
+
+    (image,) = wrapper.generate([_request(text="hello world again")])
+
+    assert int(image[30, 10]) == 1
+    assert wrapper.selection.none_accepted == 1
+
+
+# ---------------------------------------------------------------------------
 # Keeping the draw closest to the hand
 # ---------------------------------------------------------------------------
 
@@ -237,6 +302,17 @@ def test_by_hand_an_unreadable_draw_is_never_kept_however_close():
 
     assert int(image[30, 10]) == 2
     assert wrapper.selection.moved_by_hand == 0
+
+
+def test_by_hand_a_draw_that_writes_beyond_the_text_is_never_kept_however_close():
+    base = ScriptedGenerator(["hello world again te Te", "hello world again"])
+    hand = HandEmbedder({1: [1.0, 0.0], 2: [0.0, 1.0]})
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, hand=hand)
+
+    (image,) = wrapper.generate([_request(text="hello world again")])
+
+    assert int(image[30, 10]) == 2
+    assert wrapper.selection.rejected_for_overrun == 1
 
 
 def test_by_hand_with_nothing_readable_the_best_read_is_kept():

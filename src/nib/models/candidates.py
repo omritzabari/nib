@@ -13,7 +13,8 @@ This module draws again. For each line to write:
 2. draw with **one** style line at a time -- two joined side by side broke the
    text itself (CER 30.4% -> 59.6%), so a page is used by selection, never by
    concatenation;
-3. read the draw with a recogniser and score it against the intended text;
+3. read the draw with a recogniser and score it against the intended text --
+   its CER, and how much it wrote beyond that text;
 4. keep a draw, by one of two rules.
 
 **Readable (T28).** Stop at the first draw readable enough, otherwise keep the
@@ -65,6 +66,19 @@ line read at 9.3% and the failures above 90%. The selector is TrOCR-small, whose
 own rate on real lines has not been measured here, so the threshold is loose on
 purpose -- a tight one would spend draws re-rolling lines that were fine."""
 
+ACCEPT_OVERRUN = 2
+"""A readable draw may carry at most this many characters beyond either end of
+its text -- see :func:`overrun`.
+
+A draw can write the whole line and then keep going ("about the t.t. 1/",
+"cafe: Te-Te" on Amri's page) and still read under ``ACCEPT_CER``, because a few
+extra characters are small against a line. Calibrated with TrOCR-small, the
+selector, on 2026-09-16. Readable real lines it would reject: 2 of 290 CVL lines
+at 3 or more (0.7%, both misread ends, "Framework" for "Zemanek"), against 8 at 2
+or more (2.8%); 0 of Amri's 22. Readable generated lines it rejects at 3 or more:
+2 of his 27 -- exactly the two with junk after the text -- and 13 of 293 kept by
+cell 7c, most of them a repeated last word ("they they", "in ins", "on on on")."""
+
 STYLE_WIDTH_RANGE = (500, 1100)
 """Style line widths, at the reference height, that generated well. See above."""
 
@@ -96,6 +110,37 @@ def style_order(
     return sorted(range(len(images)), key=key)
 
 
+def overrun(reading: str, target: str) -> int:
+    """The most characters a reading carries beyond either end of the target.
+
+    The whole target is aligned to the reading by edit distance, and the alignment
+    may begin and end anywhere in it; what lies outside it, before or after, is
+    writing the line was not asked for. Spaces are removed from both first, so the
+    space a reader puts before punctuation ("dream .") costs nothing. Among
+    alignments of least cost the widest wins, so a misread end letter is charged
+    to CER rather than here.
+    """
+    read = "".join(reading.split())
+    text = "".join(target.split())
+    # cost[j], start[j]: the cheapest alignment of the target so far ending at
+    # reading position j, and where in the reading it began.
+    cost = [0] * (len(read) + 1)
+    start = list(range(len(read) + 1))
+    for i, char in enumerate(text, start=1):
+        previous_cost, previous_start = cost, start
+        cost, start = [i] + [0] * len(read), [0] * (len(read) + 1)
+        for j, seen in enumerate(read, start=1):
+            cost[j], start[j] = min(
+                (previous_cost[j - 1] + (char != seen), previous_start[j - 1]),
+                (previous_cost[j] + 1, previous_start[j]),
+                (cost[j - 1] + 1, start[j - 1]),
+            )
+    _, _, before, end = min(
+        (cost[j], max(start[j], len(read) - j), start[j], j) for j in range(len(read) + 1)
+    )
+    return max(before, len(read) - end)
+
+
 def _unit(vectors: np.ndarray) -> np.ndarray:
     vectors = np.asarray(vectors, dtype=np.float64)
     norms = np.linalg.norm(vectors, axis=-1, keepdims=True)
@@ -110,6 +155,9 @@ class Draw:
 
     style_index: int
     truncated: bool
+    overrun: int = 0
+    """Characters read beyond either end of the text."""
+
     similarity: float | None = None
     """Cosine similarity to the writer's page, when selecting by hand."""
 
@@ -129,6 +177,9 @@ class SelectionLog:
     """Requests where closeness to the hand chose a different draw than the first
     readable one would have been -- how often the second rule changed anything."""
 
+    rejected_for_overrun: int = 0
+    """Draws that read well enough but wrote beyond the text, set aside for it."""
+
     chosen_scores: list[float] = field(default_factory=list)
     """The selector's CER for each kept image, in request order."""
 
@@ -145,6 +196,7 @@ class SelectionLog:
             "first_draw_accepted": self.first_draw_accepted,
             "none_accepted": self.none_accepted,
             "moved_by_hand": self.moved_by_hand,
+            "rejected_for_overrun": self.rejected_for_overrun,
         }
 
     def summary(self) -> str:
@@ -162,6 +214,7 @@ class SelectionLog:
         else:
             lines.append(f"  {self.first_draw_accepted} accepted on the first draw")
         lines += [
+            f"  {self.rejected_for_overrun} read well but wrote beyond the text, set aside",
             f"  {self.none_accepted} kept as the best of an unreadable set",
             "  scored by selectors, not by the models that measure below",
         ]
@@ -184,6 +237,7 @@ class CandidateGenerator:
         accept_cer: float = ACCEPT_CER,
         width_range: tuple[int, int] = STYLE_WIDTH_RANGE,
         hand: Embedder | None = None,
+        accept_overrun: int = ACCEPT_OVERRUN,
     ) -> None:
         if candidates < 1:
             raise GeneratorError(f"need at least one candidate, got {candidates}")
@@ -191,6 +245,7 @@ class CandidateGenerator:
         self.selector = selector
         self.candidates = candidates
         self.accept_cer = accept_cer
+        self.accept_overrun = accept_overrun
         self.width_range = width_range
         self.hand = hand
         self.selection = SelectionLog(mode="readable" if hand is None else "hand")
@@ -226,7 +281,9 @@ class CandidateGenerator:
                 empty_draws += 1
                 continue
             draws.append(draw)
-            if self.hand is None and draw.score <= self.accept_cer:
+            if draw.score <= self.accept_cer and draw.overrun > self.accept_overrun:
+                self.selection.rejected_for_overrun += 1
+            if self.hand is None and self._readable(draw):
                 break
 
         self.selection.requests += 1
@@ -244,7 +301,7 @@ class CandidateGenerator:
             self.empties.retried += 1
         if used == 1:
             self.selection.first_draw_accepted += 1
-        if best.score > self.accept_cer:
+        if not self._readable(best):
             self.selection.none_accepted += 1
         self.selection.chosen_scores.append(best.score)
 
@@ -253,8 +310,11 @@ class CandidateGenerator:
             self.truncations.events.append(self._last_truncation(request, best))
         return best.image
 
+    def _readable(self, draw: Draw) -> bool:
+        return draw.score <= self.accept_cer and draw.overrun <= self.accept_overrun
+
     def _choose(self, request: GenerationRequest, draws: list[Draw]) -> Draw:
-        readable = [draw for draw in draws if draw.score <= self.accept_cer]
+        readable = [draw for draw in draws if self._readable(draw)]
         if not readable:
             return min(draws, key=lambda draw: draw.score)
         if self.hand is None:
@@ -264,7 +324,7 @@ class CandidateGenerator:
         vectors = _unit(self.hand([draw.image for draw in readable]))
         similarities = vectors @ page
         scored = [
-            Draw(d.image, d.score, d.style_index, d.truncated, float(s))
+            Draw(d.image, d.score, d.style_index, d.truncated, d.overrun, float(s))
             for d, s in zip(readable, similarities, strict=True)
         ]
         best = max(scored, key=lambda draw: draw.similarity)
@@ -302,7 +362,13 @@ class CandidateGenerator:
             return None
         truncated = base_log is not None and len(base_log.events) > before
         reading = self.selector.read([image])[0]
-        return Draw(image, cer(reading, request.text), index, truncated)
+        return Draw(
+            image,
+            cer(reading, request.text),
+            index,
+            truncated,
+            overrun(reading, request.text),
+        )
 
     def _last_truncation(self, request: GenerationRequest, draw: Draw):
         from nib.models.emuru import Truncation

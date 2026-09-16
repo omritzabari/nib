@@ -227,15 +227,28 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > whole slice, as `finetune.prepare_line` already did for training. The check is
 > the next 7g run: stray starts should fall, empty outputs must not rise.
 >
-> **Line ends: junk after the text, not fixed -- needs a decision.** Read locally
-> with TrOCR-base: "about the t.t. 1/" scores 27.8% CER and "cafe : he" 15.4%, both
-> far under the 50% that counts as readable. A rule that rejects a draw with
-> extra characters beyond the target's ends is the obvious fix, but TrOCR also
-> puts a space before every punctuation mark ("dream ." -- target 13 is read
-> word for word and still scores 4.9%, all of it those spaces; real lines pay it
-> too), so a naive length check would
-> reject good lines. It has to be calibrated on real lines with TrOCR-small, the
-> selector, which is not cached locally.
+> **Line ends: writing beyond the text, calibrated and fixed (T35), not yet run.**
+> Read locally with TrOCR-base, "about the t.t. 1/" scores 27.8% CER and "cafe :
+> he" 15.4%, far under the 50% that counts as readable. TrOCR also puts a space
+> before every punctuation mark ("dream ." -- target 13 is read word for word and
+> still scores 4.9%, all of it those spaces; real lines pay it too), so a length
+> check would reject good lines. Instead `candidates.overrun` aligns the whole
+> target inside the reading, spaces removed, and counts the characters outside it
+> at the larger end. Calibrated with TrOCR-small, the selector (downloaded with
+> Amri's permission), on readable lines:
+>
+> | readable lines rejected | at 2+ | **at 3+** |
+> |---|---|---|
+> | real CVL, 290 | 8 (2.8%) | **2 (0.7%)** -- misread ends, "Framework" for "Zemanek" |
+> | real Amri, 22 | 0 | **0** |
+> | generated Amri, 27 | 3 | **2** -- exactly the two with junk after the text |
+> | cell 7c as kept, 293 | 21 | **13 (4.4%)** -- mostly a repeated last word: "they they", "in ins", "on on on" |
+>
+> A draw now counts as readable only at CER <= 50% **and** at most 2 characters
+> beyond the text; the ones set aside for it are counted in the selection log.
+> In hand mode every draw is made anyway, so it costs nothing; in readable mode an
+> occasional extra draw. The stray starts of one character (". Grandpa") are
+> below the threshold on purpose -- T34 is the fix aimed at those.
 >
 > ### Keeping the draw closest to the hand -- T30's run, 2026-09-15
 >
@@ -779,7 +792,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
-| T34 | Style line widened to whole VAE slices | **code done, GPU check pending** | the released VAE encodes floor(w/8) slices on widths 800-809, so up to 7 px of style went unseen and the cut landed inside the new line · cell 6: sliver starts 4.9% at w%8=0 -> 11.3% at 6-7 · `_as_tensor` pads with white · 4 new tests · check: next 7g, stray starts down, empties not up |
+| T35 | A draw that writes beyond its text is not readable | **code done, GPU check pending** | `overrun`: target aligned inside the reading, spaces removed, characters outside at the larger end · rejected at 3+ · TrOCR-small calibration: real CVL 2 of 290 (0.7%), real Amri 0 of 22, generated Amri 2 of 27 (both junk), 7c 13 of 293 · counted as `rejected_for_overrun` · 8 new tests (26) |
+| T34 | Style line widened to whole VAE slices | **code done, GPU check pending** | the released VAE encodes floor(w/8) slices on widths 800-809, so up to 7 px of style went unseen and the cut landed inside the new line · cell 6: sliver starts 4.9% at w%8=0 -> 11.3% at 6-7 · `_as_tensor` pads with white · 4 new tests · 457 passed with T35 · check: next 7g, stray starts down, empties not up |
 | T33 | The system on Amri's own page | **run done: "not bad, still far from my hand"** | T4, 2026-09-16: 22 of 22 lines split, page 2 written 22 of 22 · CER on 5 targets real 8.7% [6.7, 10.7], generated 10.6% [7.1, 14.1] · 108 draws for 27 requests, hand moved the pick in 24 · no identity figure for one writer · build: | `scripts/probe_writer.py`: splits a dictated page, refuses a line count that does not match the passage, sets aside `--skip` lines, learns from 10 lines and writes 5 others again for comparison, then writes page 2's text in the hand · `comparison.png`, `written.png`, `blind/` pairs with `key.json` · notebook cell 7g; needs `MyDrive/nib/personal/passage_page1.jpg` |
 | T32 | Segmentation of a real passage page | **done** | Amri's `passage_page1.jpg` (pen, lined paper, 2792px): 22 of 22 lines · two fixes found by looking at the crops: never shrink a photo by more than 20% (thin strokes fell below every threshold at 1600px -- "Uri" lost its U, "P.S." its P), and small marks join the nearest letter rather than the nearest line centre, which brings dots, commas and full stops back · the five squared-paper photos unchanged at 13 lines (dim still xfail) |
 | T31 | Fine-tune with the writer's strokes withheld | **code done, run pending** | `--context other --noise 0.5`: each training line placed after a training-split writer's line, loss on the writer's line only (`masked_mse`), teacher noise 0.5 against latent ink std 1.17 (measured) · 5 new tests (17) · notebook cell 7f, the same 24 writers as 7d |
@@ -817,6 +831,14 @@ Live task state. Updated at the end of every task. A fresh session reads this to
   this ever ships as a product. Flagged early on purpose.
 
 ## Log
+
+- **2026-09-16 — T35: writing beyond the text no longer passes as readable.** Two of
+  the 27 lines on Amri's page ran on past their text and passed selection at 50% CER.
+  A new measure aligns the text inside the reading and counts what is left over at
+  either end, ignoring TrOCR's habit of a space before punctuation. Calibrated with
+  TrOCR-small over 290 real CVL lines, Amri's 22, and 620 generated: at three or more
+  characters it sets aside 0.7% of real lines and both of Amri's junk lines, and in
+  cell 7c's kept output mostly catches a repeated last word.
 
 - **2026-09-16 — T34: the style line reaches Emuru on whole slices.** Following the
   stray marks at the start of Amri's lines, the released VAE turned out to encode
