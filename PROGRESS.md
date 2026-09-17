@@ -38,12 +38,31 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > a thin generic cursive unlike his, one a bold upright print much nearer. Three
 > samples say it works, not how well.
 >
+> **Stages 1-3 built, 2026-09-17, while Amri was away** (he approved building the
+> new model and touching project files only, not Emuru's code):
+>
+> - **T36, the adapter** `nib.models.diffbrush.DiffBrushGenerator`, behind the same
+>   interface as Emuru: loads in 13 s, 38 s a line on CPU. `--generator diffbrush`
+>   in `evaluate_generator.py` and `probe_writer.py`; Emuru stays the default and
+>   writes where it did.
+> - **T37, the fine-tune** `nib.models.diffbrush_finetune` and
+>   `scripts/evaluate_finetune_diffbrush.py`. Run tiny on CPU end to end on the real
+>   checkpoint (2 writers, 2 steps): 0.39M trainable of 163M, 5.5 s a training step
+>   at batch 2, generation before and after, reset, Emuru's 7d images scored as a
+>   third condition, HWD and CER for all three. The first attempt died on DiffBrush's
+>   own gradient checkpointing, which asks for gradients on frozen weights; the
+>   transformer blocks now run without it while an adapter trains.
+> - **Notebook:** 7h sets DiffBrush up (clone at `da9addc`, checkpoint kept on
+>   Drive), 7i is stage 2 on 150 CVL lines, 7j is 7g with DiffBrush, 7k is stage 3.
+>
+> **Next, Amri, on a T4:** cells 1-4, then **7h**, then **7k** -- the decisive one,
+> with its criterion written in the cell: `fine-tuned minus Emuru released` wholly
+> above zero, and Emuru's own figure close to 7d's 53.7% or the comparison is void.
+> Then 7j (his page, zero-shot, by eye) and 7i (the stage 2 number) as time allows.
+> No T4 timing exists for DiffBrush yet; the first progress line of each gives it.
+>
 > **Amri chose alternative models**, and to leave the page engine
 > until a model writes lines properly. Survey: `docs/research-2026-09-17-alternative-models.md`.
-> Proposed order: (1) Eruku through the current harness -- adapter exists, never
-> scored by HWD identity, its paper puts it ahead of Emuru on IAM and CVL lines;
-> (2) DiffBrush, line-level diffusion, MIT, IAM weights, needs a wrapper;
-> (3) the paragraph LDM, page in and page out, licence unstated. **Awaiting Amri.**
 
 > **Phase 1 is complete (13/13). Phase 2 has begun and the model generates.**
 >
@@ -923,7 +942,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
-| T37 | DiffBrush per-writer fine-tune (stage 3) | **code done, CPU check running** | `nib.models.diffbrush_finetune`: noise-prediction loss on the writer's line with another of their lines as style, LoRA on the UNet's `to_q/to_k/to_v/to_out.0`, lines wider than 1024 squeezed and counted · `scripts/evaluate_finetune_diffbrush.py`: 7d's writers and targets, released vs fine-tuned, and `--compare-with` 7d's run scores Emuru released as a third condition against the same reference · 13 tests |
+| T37 | DiffBrush per-writer fine-tune (stage 3) | **code done and run tiny on CPU; cell 7k awaits a T4** | CPU, real checkpoint, 2 writers, 2 steps: 0.39M trainable of 163M, 5.5 s a step at batch 2, three conditions scored end to end · DiffBrush's gradient checkpointing turned off in its transformer blocks while training (it raised on frozen weights) · 13 tests, 481 passed | `nib.models.diffbrush_finetune`: noise-prediction loss on the writer's line with another of their lines as style, LoRA on the UNet's `to_q/to_k/to_v/to_out.0`, lines wider than 1024 squeezed and counted · `scripts/evaluate_finetune_diffbrush.py`: 7d's writers and targets, released vs fine-tuned, and `--compare-with` 7d's run scores Emuru released as a third condition against the same reference · 13 tests |
 | T36 | DiffBrush behind the Generator interface | **done; stage 2 cells 7h-7j ready** | `nib.models.diffbrush.DiffBrushGenerator`: loads in 13 s, 38 s a line on CPU, `check_output` passes, `$` refused by name · `--generator diffbrush` in `evaluate_generator.py` and `probe_writer.py`, Emuru the default and unchanged · `paths.third_party` · 11 tests, 468 passed · stage 1 scratch: checkpoint loads exactly, 163M params, charset covers all of CVL and the passages |
 | T35 | A draw that writes beyond its text is not readable | **code done, GPU check pending** | `overrun`: target aligned inside the reading, spaces removed, characters outside at the larger end · rejected at 3+ · TrOCR-small calibration: real CVL 2 of 290 (0.7%), real Amri 0 of 22, generated Amri 2 of 27 (both junk), 7c 13 of 293 · counted as `rejected_for_overrun` · 8 new tests (26) |
 | T34 | Style line widened to whole VAE slices | **code done, GPU check pending** | the released VAE encodes floor(w/8) slices on widths 800-809, so up to 7 px of style went unseen and the cut landed inside the new line · cell 6: sliver starts 4.9% at w%8=0 -> 11.3% at 6-7 · `_as_tensor` pads with white · 4 new tests · 457 passed with T35 · check: next 7g, stray starts down, empties not up |
