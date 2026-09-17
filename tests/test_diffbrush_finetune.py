@@ -117,6 +117,43 @@ class TinyAttention(nn.Module):
         return self.to_out(weights @ self.to_v(context))
 
 
+class _Checkpoint(torch.autograd.Function):
+    """DiffBrush's own gradient checkpointing, reduced: it recomputes the block in
+    backward and asks for gradients with respect to *every* parameter of the block,
+    frozen or not."""
+
+    @staticmethod
+    def forward(ctx, run, length, *args):
+        ctx.run, ctx.inputs, ctx.params = run, list(args[:length]), list(args[length:])
+        with torch.no_grad():
+            return run(*ctx.inputs)
+
+    @staticmethod
+    def backward(ctx, *grads):
+        inputs = [x.detach().requires_grad_(True) for x in ctx.inputs]
+        with torch.enable_grad():
+            outputs = ctx.run(*[x.view_as(x) for x in inputs])
+        found = torch.autograd.grad(outputs, inputs + ctx.params, grads, allow_unused=True)
+        return (None, None, *found)
+
+
+class TinyTransformerBlock(nn.Module):
+    """Like DiffBrush's ``BasicTransformerBlock``: attention, checkpointed by default."""
+
+    def __init__(self, checkpoint=True):
+        super().__init__()
+        self.attention = TinyAttention()
+        self.checkpoint = checkpoint
+
+    def forward(self, x, context):
+        if self.checkpoint:
+            return _Checkpoint.apply(self._forward, 2, x, context, *self.parameters())
+        return self._forward(x, context)
+
+    def _forward(self, x, context):
+        return x + self.attention(x, context)
+
+
 class TinyUNet(nn.Module):
     """Noise, timesteps, a style line and glyphs in; predicted noise out."""
 
@@ -127,7 +164,7 @@ class TinyUNet(nn.Module):
         self.inp = nn.Conv2d(4, 8, 1)
         self.style = nn.Linear(64, 8)
         self.glyph = nn.Linear(256, 8)
-        self.attention = TinyAttention()
+        self.attention = TinyTransformerBlock()
         self.out = nn.Conv2d(8, 4, 1)
 
     def forward(self, x, timesteps, style, content, tag="test"):
@@ -138,7 +175,7 @@ class TinyUNet(nn.Module):
             [self.style(style.mean(dim=-1).flatten(1))[:, None], self.glyph(content.flatten(2))],
             dim=1,
         )
-        tokens = tokens + self.attention(tokens, context)
+        tokens = self.attention(tokens, context)
         h = tokens.transpose(1, 2).reshape(batch, channels, height, width)
         return self.out(h) * (1 + timesteps[:, None, None, None].float() / 1000)
 

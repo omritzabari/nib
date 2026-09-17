@@ -150,6 +150,13 @@ def attach_lora(unet, config: DiffBrushFinetuneConfig = DEFAULT_CONFIG, device=N
     _ignore_stale_torchao()
     for parameter in unet.parameters():
         parameter.requires_grad_(False)
+    # DiffBrush's transformer blocks checkpoint by default, with their own function
+    # that asks for a gradient on every parameter of the block. Once the base
+    # weights are frozen that raises on the first backward pass -- the first CPU run
+    # of stage 3 died there -- so the blocks run plainly, at some cost in memory.
+    for module in unet.modules():
+        if isinstance(getattr(module, "checkpoint", None), bool):
+            module.checkpoint = False
     lora = LoraConfig(
         r=config.rank,
         lora_alpha=config.alpha,
