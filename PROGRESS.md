@@ -14,7 +14,31 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > style lines joined, cropping the output tight (-4.7 points). Fixed: the style cut
 > (T34), writing beyond the text (T35). The vanishing detail is not the VAE, not a
 > fade and not slice seams; most likely the model's regression averaging small
-> marks away. **Amri chose alternative models**, and to leave the page engine
+> marks away.
+>
+> **DiffBrush, stage 1 (T36), 2026-09-17: it runs, on CPU, from our style lines.**
+> Amri chose DiffBrush over Eruku -- Eruku shares Emuru's autoregressive regression
+> and so probably its vanishing marks -- with stop points: (1) wrapper and CPU check,
+> (2) zero-shot on 150 CVL lines, (3) per-writer fine-tune on 7d's 24 writers, which
+> must beat Emuru's 53.6% there, paired, (4) his page. Cloned at `da9addc`
+> (2025-11-24) into `third_party/DiffBrush/`, gitignored; checkpoint 1.17 GB in
+> `checkpoints/diffbrush/`; Stable Diffusion 1.5's VAE from Hugging Face. Scratch
+> run, no repo code yet: the UNet loads with 0 missing and 0 unexpected keys, 163M
+> parameters, **42 s a line on CPU** for 50 DDIM steps (Emuru: 220 s). The released
+> code calls `.cuda()` while building training-only proxies, bypassed on CPU; it also
+> fetches ImageNet ResNet-18 weights (45 MB) at construction, then overwritten by the
+> checkpoint. Every character in CVL's 9,142 lines and in both passages is in its
+> charset; 28.5% of CVL lines are wider than its fixed 1,024px canvas. It does not
+> need the style line's transcription -- Emuru does.
+>
+> Three lines, `outputs/diffbrush_smoke_cpu.png`: real cursive handwriting with
+> colons, semicolons and i-dots present; words garbled in places ("shitics w ithat",
+> "ods old", "abbut theo", "11:30" -> "1:30"). From CVL writer 0368 the hand follows
+> the style's slant and cursive. From Amri's line 12, the two draws differ a lot: one
+> a thin generic cursive unlike his, one a bold upright print much nearer. Three
+> samples say it works, not how well.
+>
+> **Amri chose alternative models**, and to leave the page engine
 > until a model writes lines properly. Survey: `docs/research-2026-09-17-alternative-models.md`.
 > Proposed order: (1) Eruku through the current harness -- adapter exists, never
 > scored by HWD identity, its paper puts it ahead of Emuru on IAM and CVL lines;
@@ -899,6 +923,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
+| T36 | DiffBrush behind the Generator interface | **stage 1: runs on CPU in a scratch script; wrapper not written** | checkpoint loads exactly (0 missing, 0 unexpected), 163M params, 42 s a line on CPU · charset covers all of CVL and the passages · canvas fixed at 64x1024 · three sample lines readable with word errors, marks present |
 | T35 | A draw that writes beyond its text is not readable | **code done, GPU check pending** | `overrun`: target aligned inside the reading, spaces removed, characters outside at the larger end · rejected at 3+ · TrOCR-small calibration: real CVL 2 of 290 (0.7%), real Amri 0 of 22, generated Amri 2 of 27 (both junk), 7c 13 of 293 · counted as `rejected_for_overrun` · 8 new tests (26) |
 | T34 | Style line widened to whole VAE slices | **code done, GPU check pending** | the released VAE encodes floor(w/8) slices on widths 800-809, so up to 7 px of style went unseen and the cut landed inside the new line · cell 6: sliver starts 4.9% at w%8=0 -> 11.3% at 6-7 · `_as_tensor` pads with white · 4 new tests · 457 passed with T35 · check: next 7g, stray starts down, empties not up |
 | T33 | The system on Amri's own page | **run done: "not bad, still far from my hand"** | T4, 2026-09-16: 22 of 22 lines split, page 2 written 22 of 22 · CER on 5 targets real 8.7% [6.7, 10.7], generated 10.6% [7.1, 14.1] · 108 draws for 27 requests, hand moved the pick in 24 · no identity figure for one writer · build: | `scripts/probe_writer.py`: splits a dictated page, refuses a line count that does not match the passage, sets aside `--skip` lines, learns from 10 lines and writes 5 others again for comparison, then writes page 2's text in the hand · `comparison.png`, `written.png`, `blind/` pairs with `key.json` · notebook cell 7g; needs `MyDrive/nib/personal/passage_page1.jpg` |

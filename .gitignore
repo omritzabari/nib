@@ -45,3 +45,6 @@ runs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Third-party model code, cloned for reading and local runs; never committed.
+third_party/
