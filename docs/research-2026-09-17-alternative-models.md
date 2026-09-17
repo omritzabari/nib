@@ -63,6 +63,29 @@ IAM and CVL lines. Its learned end token already removed Emuru's empty outputs.
 - Word-level models (DiffusionPen, One-DM) would need word stitching and are
   superseded at line level by DiffBrush (One-DM's authors).
 
+## DiffBrush, checked further
+
+From the paper: **a separate model is trained per dataset** (IAM: 496 writers train,
+161 test; CVL: 283 train, 27 test) and **there is no cross-dataset experiment** --
+only the IAM model is released. One whole line is the style reference. Every image
+is set on a **64 x 1024 canvas**: narrower lines are padded, wider ones resized to
+fit -- CVL lines reach 1,762px and Amri's run 847-1,198px. Text goes in as Unifont
+glyph images. Failure cases are in its Appendix M, not read.
+
+**The generalisation risk is the main one.** Every model trained on IAM that has
+been measured off IAM lost its imitation there: DiffusionPen on CVL lines HWD 2.99
+against Emuru's 1.82 (Eruku paper, one protocol); the paragraph LDM's writer
+identification fell from 50-56% on IAM to 11% on CVL. Emuru and Eruku trained on
+millions of synthetic fonts, which is what generalises. A new writer photographed
+in pen is further from IAM than CVL is.
+
+**What changes the odds is fine-tuning.** For Emuru it failed for a structural
+reason: the hand is copied from the style prefix, so the weights never needed it
+(7d), and withholding it undid the copying (7f). A diffusion model has no prefix
+to copy from -- the hand has to live in the weights and the style embedding -- which
+is the setting where few-image personalisation of image diffusion models is
+routine. **Whether that carries to handwriting from 10-22 lines is untested.**
+
 ## Not verified
 
 DiffBrush's style-input count at test time and its inference time on a T4; whether
