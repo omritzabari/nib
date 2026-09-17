@@ -66,7 +66,7 @@ Emuru, ניסיון אחד (תא 6)             56.5%         30.4%
 
 ## המשימה הבאה — DiffBrush על T4
 
-עמרי בחר מודל חלופי: **DiffBrush** (ICCV 2025, diffusion ששורה שלמה, MIT). הסקירה ב‑
+עמרי בחר מודל חלופי: **DiffBrush** (ICCV 2025, מודל diffusion שכותב שורה שלמה, MIT). הסקירה ב‑
 `docs/research-2026-09-17-alternative-models.md`. תוכנית עם נקודות עצירה:
 (1) עטיפה ובדיקה על CPU — **נעשה**; (2) בלי כוונון על 150 שורות CVL — מספר בלבד;
 (3) כוונון LoRA לכל כותב על 24 הכותבים של 7d — **חייב לעקוף את Emuru מוצמד**;
@@ -95,7 +95,7 @@ Emuru, ניסיון אחד (תא 6)             56.5%         30.4%
 - **`hwd` לא נטען מקומית** (אין `editdistance` ל‑Python 3.13 על Windows). הרצות
   מקומיות עוברות דרך סקריפט עם stub שזורק אם נקרא, **ועם `num_workers=0`** — אחרת
   ה‑DataLoader של `hwd` נתקע ב‑Windows. מקומית הוא משחזר את מספרי קולאב בדיוק.
-- **בדיקות:** `.venv\Scripts\python.exe -m pytest` — 457 עוברות, 5 מדולגות, 1 xfail.
+- **בדיקות:** `.venv\Scripts\python.exe -m pytest` — 481 עוברות, 5 מדולגות, 1 xfail.
 - **ניתוח בלי GPU:** `scripts\analyse_run.py outputs\eval_...`; תיקיות ריצה מורדות
   מ‑Drive לתוך `outputs/`.
 
