@@ -14,8 +14,12 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > style lines joined, cropping the output tight (-4.7 points). Fixed: the style cut
 > (T34), writing beyond the text (T35). The vanishing detail is not the VAE, not a
 > fade and not slice seams; most likely the model's regression averaging small
-> marks away. **Awaiting Amri's choice:** survey and try a model whose decoder
-> samples rather than averages (recommended), or keep squeezing Emuru.
+> marks away. **Amri chose alternative models**, and to leave the page engine
+> until a model writes lines properly. Survey: `docs/research-2026-09-17-alternative-models.md`.
+> Proposed order: (1) Eruku through the current harness -- adapter exists, never
+> scored by HWD identity, its paper puts it ahead of Emuru on IAM and CVL lines;
+> (2) DiffBrush, line-level diffusion, MIT, IAM weights, needs a wrapper;
+> (3) the paragraph LDM, page in and page out, licence unstated. **Awaiting Amri.**
 
 > **Phase 1 is complete (13/13). Phase 2 has begun and the model generates.**
 >
