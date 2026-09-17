@@ -6,6 +6,17 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
+> **Where things stand, 2026-09-17.** The system runs end to end on Amri's own page:
+> 22 of 22 lines of new text, reading about as well as his hand, and to his eye "the
+> base looks not bad at all" but it is not yet his hand -- small parts vanish. On
+> CVL, Emuru carries 65% of a writer's identity (70% keeping the draw closest to the
+> hand). Closed: per-writer LoRA fine-tuning (7d no change, 7f -17.9 points), two
+> style lines joined, cropping the output tight (-4.7 points). Fixed: the style cut
+> (T34), writing beyond the text (T35). The vanishing detail is not the VAE, not a
+> fade and not slice seams; most likely the model's regression averaging small
+> marks away. **Awaiting Amri's choice:** survey and try a model whose decoder
+> samples rather than averages (recommended), or keep squeezing Emuru.
+
 > **Phase 1 is complete (13/13). Phase 2 has begun and the model generates.**
 >
 > On 2026-08-31 the project produced handwriting for the first time: held-out CVL
@@ -252,6 +263,39 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > stop. `EmuruGenerator._as_tensor` now widens every style line with white to a
 > whole slice, as `finetune.prepare_line` already did for training. The check is
 > the next 7g run: stray starts should fall, empty outputs must not rise.
+>
+> **7g again with T34 and T35, 2026-09-16.** 5 of 5 targets, 22 of 22 lines of page
+> 2, nothing lost. CER on the targets: real 8.7%, generated 13.5% [7.5, 19.8]
+> against 10.6% [7.1, 14.1] before -- five lines, overlapping. 108 draws; 1 set aside
+> for writing beyond its text; 0 kept from an unreadable set; the hand moved the
+> pick in 24 of 27 as before. The earlier images are kept in
+> `outputs/probe_passage_page1_before_t34/`.
+>
+> By eye, against the earlier run (different draws, so indicative only): **junk
+> after the text gone** (2 of 27 -> 0); **clear stray marks at line starts 7 -> 2**
+> (". I spent", ". Kept" -- style line 11 ends in a full stop, so the model still
+> writes the end of the style text first, not only because of the cut). Amri: "the
+> base itself looks not bad at all", but many parts are still not written or
+> vanish -- dots, pieces of letters, gaps inside letters. On this page: "11:30" ->
+> faint marks, "5:45" -> "5 5", "#378 at" -> "3 T", "#1" -> "1", broken first
+> letters in "Chloe", "Friday", "Shopping".
+>
+> **Why parts vanish -- three explanations ruled out, no GPU:**
+>
+> - **Not the VAE.** Amri's real lines encoded and decoded by `emuru_vae`, posterior
+>   mean and sampled alike, come back with every dot, "#", quote and i-dot; 86-94%
+>   of ink pixels stay dark, the rest are edges.
+> - **Not a global fade.** The share of stroke pixels that are grey is 39% in his
+>   real lines, 39% in both generated runs; CVL 39% real, 43% generated.
+> - **Not seams between 8px slices.** Column-to-column change in ink, by x mod 8,
+>   sits at 0.94-1.05 of its mean for generated lines, 0.97-1.01 for real.
+>
+> What is left is the prediction itself. Emuru's T5 is trained by mean squared
+> error on the latents (per its `forward`), and a regression predicts the average
+> of what could come next: where a small mark's position or presence is uncertain
+> -- a dot, a colon, a crossbar, a digit's short stroke -- the average is faint or
+> nothing. That fits what vanishes, and would be a property of the model rather
+> than of our pipeline. **Inference, not measured.**
 >
 > **Line ends: writing beyond the text, calibrated and fixed (T35), not yet run.**
 > Read locally with TrOCR-base, "about the t.t. 1/" scores 27.8% CER and "cafe :
