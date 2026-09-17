@@ -104,6 +104,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--candidates", type=int, default=4)
     parser.add_argument("--keep", choices=("readable", "hand"), default="readable")
     parser.add_argument("--selector", default="microsoft/trocr-small-handwritten")
+    parser.add_argument(
+        "--generator",
+        choices=("emuru", "diffbrush"),
+        default="emuru",
+        help="the model that writes. Outputs of any but Emuru go to their own folder, "
+        "so a second model never overwrites the first one's page.",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--seed", type=int, default=0)
     args, overrides = parser.parse_known_args(argv)
@@ -122,21 +129,21 @@ def main(argv: list[str] | None = None) -> int:
     print(f"targets   lines {targets}, written again without being shown")
 
     ensure_dirs(cfg, "outputs")
-    out_dir = get_path(cfg, "outputs") / f"probe_{args.photo.stem}"
+    suffix = "" if args.generator == "emuru" else f"_{args.generator}"
+    out_dir = get_path(cfg, "outputs") / f"probe_{args.photo.stem}{suffix}"
     (out_dir / "blind").mkdir(parents=True, exist_ok=True)
 
     from nib.engine.metrics.recogniser import TrOcrRecogniser
     from nib.models.candidates import CandidateGenerator
-    from nib.models.emuru import EmuruGenerator
+
+    sys.path.insert(0, str(repo / "scripts"))
+    from evaluate_generator import _embedder, load_generator
 
     hand = None
     if args.keep == "hand":
-        sys.path.insert(0, str(repo / "scripts"))
-        from evaluate_generator import _embedder
-
         hand, _ = _embedder(cfg, args.device)
     generator = CandidateGenerator(
-        EmuruGenerator(device=args.device, output_height=height),
+        load_generator(args.generator, args.device, height, cfg=cfg),
         TrOcrRecogniser(model_name=args.selector, device=args.device, max_new_tokens=64),
         candidates=args.candidates,
         hand=hand,

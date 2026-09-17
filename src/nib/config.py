@@ -43,6 +43,10 @@ class PathsConfig:
     checkpoints: str = "${paths.root}/checkpoints"
     outputs: str = "${paths.root}/outputs"
 
+    third_party: str = "${paths.root}/third_party"
+    """Other people's model code, cloned at a pinned commit and never committed --
+    DiffBrush lives here. Not vendored, so its licence and history stay its own."""
+
     references: str = "${paths.root}/references"
     """Measured baselines, and the one output directory that is *committed*.
 

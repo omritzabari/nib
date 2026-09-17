@@ -169,7 +169,21 @@ def load_generator(
     height: int,
     failure_rate: float = 0.0,
     cfg_scale: float | None = None,
+    cfg=None,
 ):
+    if name == "diffbrush":
+        # Latent diffusion, trained on IAM alone; its code is cloned into
+        # paths.third_party and its checkpoint sits under paths.checkpoints.
+        from nib.models.diffbrush import DiffBrushGenerator, locate
+
+        code_dir, checkpoint = locate(cfg)
+        return DiffBrushGenerator(
+            code_dir,
+            checkpoint,
+            device=device,
+            output_height=height,
+            seed=int(cfg.seed),
+        )
     if name == "emuru":
         from nib.models.emuru import EmuruGenerator
 
@@ -209,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--generator",
         default="emuru",
-        choices=("emuru", "eruku", "eruku-no-style-text", "fake"),
+        choices=("emuru", "diffbrush", "eruku", "eruku-no-style-text", "fake"),
         help="fake draws the target text in a typeface: every number it gives is "
         "meaningless and every shape is right, which proves the harness before an "
         "hour of GPU is spent on it.",
@@ -360,7 +374,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\nloading {args.generator} on {device} ...")
     generator = load_generator(
-        args.generator, device, height, args.fake_failure_rate, args.cfg_scale
+        args.generator, device, height, args.fake_failure_rate, args.cfg_scale, cfg=cfg
     )
     if args.candidates > 1:
         from nib.engine.metrics.recogniser import TrOcrRecogniser
