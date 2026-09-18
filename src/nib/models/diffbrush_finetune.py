@@ -248,7 +248,15 @@ def train_writer(
     contents = [encode_text(text, glyphs) for text in texts]
 
     optimizer = torch.optim.AdamW(parameters, lr=config.learning_rate)
-    unet.train()
+    # Eval mode, not train mode, although this *is* training. The frozen backbone
+    # must behave exactly as it does while generating: its style encoder is a
+    # ResNet-18 with forty batch norms, and in train mode every step moves their
+    # running statistics. Those are buffers, not parameters, so resetting the
+    # adapter cannot undo them -- each writer inherited the last one's drift, which
+    # is what made the first two runs meaningless. Dropout goes quiet for the same
+    # reason: the adapter should be fitted against the model the user will get.
+    # Gradients still flow; eval mode changes behaviour, not autograd.
+    unet.eval()
     losses: list[float] = []
     order: list[int] = []
     started = time.perf_counter()
@@ -287,7 +295,6 @@ def train_writer(
 
     if str(device).startswith("cuda"):
         torch.cuda.synchronize()
-    unet.eval()
     return DiffBrushTrainReport(
         steps=config.steps,
         seconds=time.perf_counter() - started,

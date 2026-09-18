@@ -158,13 +158,18 @@ class TinyTransformerBlock(nn.Module):
 
 
 class TinyUNet(nn.Module):
-    """Noise, timesteps, a style line and glyphs in; predicted noise out."""
+    """Noise, timesteps, a style line and glyphs in; predicted noise out.
+
+    The batch norm stands for the forty inside DiffBrush's style encoder, whose
+    ResNet-18 carries them.
+    """
 
     in_channels = 4
 
     def __init__(self):
         super().__init__()
         self.inp = nn.Conv2d(4, 8, 1)
+        self.style_norm = nn.BatchNorm2d(1)
         self.style = nn.Linear(64, 8)
         self.glyph = nn.Linear(256, 8)
         self.attention = TinyTransformerBlock()
@@ -175,7 +180,10 @@ class TinyUNet(nn.Module):
         batch, channels, height, width = h.shape
         tokens = h.flatten(2).transpose(1, 2)
         context = torch.cat(
-            [self.style(style.mean(dim=-1).flatten(1))[:, None], self.glyph(content.flatten(2))],
+            [
+                self.style(self.style_norm(style).mean(dim=-1).flatten(1))[:, None],
+                self.glyph(content.flatten(2)),
+            ],
             dim=1,
         )
         tokens = self.attention(tokens, context)
@@ -327,6 +335,51 @@ def test_a_writer_left_with_too_few_narrow_lines_keeps_the_wide_ones():
     )
 
     assert report.skipped == 0 and report.squeezed == 2
+
+
+def test_training_leaves_the_frozen_batch_norms_exactly_where_they_were():
+    """The style encoder's batch norms are not parameters, so resetting the adapter
+    cannot undo them. Trained in train mode they drift on every step -- 40 of 40 did
+    after two steps -- and every later writer inherits the drift."""
+    from nib.models.diffbrush_finetune import attach_lora, train_writer
+
+    unet = TinyUNet()
+    attach_lora(unet, DiffBrushFinetuneConfig(rank=2, alpha=2))
+    before = unet.style_norm.running_mean.clone(), unet.style_norm.running_var.clone()
+    images, texts = _writer()
+
+    train_writer(
+        unet, TinyVAE(), images, texts, _glyphs(), DiffBrushFinetuneConfig(rank=2, alpha=2, steps=3)
+    )
+
+    torch.testing.assert_close(unet.style_norm.running_mean, before[0])
+    torch.testing.assert_close(unet.style_norm.running_var, before[1])
+    assert int(unet.style_norm.num_batches_tracked) == 0
+
+
+def test_after_training_and_reset_the_model_draws_exactly_as_it_did_before():
+    """The check the first two GPU runs needed: a writer must leave the model as it
+    found it, or every later writer starts from the last one's adaptation."""
+    from nib.models.diffbrush_finetune import attach_lora, train_writer
+    from nib.models.finetune import reset_lora
+
+    torch.manual_seed(0)
+    unet = TinyUNet()
+    attach_lora(unet, DiffBrushFinetuneConfig(rank=2, alpha=2))
+    x = torch.randn(1, 4, 8, 128)
+    style = torch.rand(1, 1, 64, 300)
+    content = torch.rand(1, 5, 16, 16)
+    t = torch.tensor([10])
+    unet.eval()
+    before = unet(x, t, style, content)
+    images, texts = _writer()
+
+    train_writer(
+        unet, TinyVAE(), images, texts, _glyphs(), DiffBrushFinetuneConfig(rank=2, alpha=2, steps=3)
+    )
+    reset_lora(unet)
+
+    torch.testing.assert_close(unet(x, t, style, content), before)
 
 
 def test_training_without_an_adapter_is_refused():

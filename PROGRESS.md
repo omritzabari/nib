@@ -55,6 +55,37 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > - **Notebook:** 7h sets DiffBrush up (clone at `da9addc`, checkpoint kept on
 >   Drive), 7i is stage 2 on 150 CVL lines, 7j is 7g with DiffBrush, 7k is stage 3.
 >
+> ### Both stage 3 runs were measuring a model that drifted -- found 2026-09-18
+>
+> **DiffBrush's style encoder is a ResNet-18 with 40 batch norms, and training moved
+> every one of them.** Their running statistics are buffers, not parameters, so
+> `reset_lora` -- which does return the adapter to exactly zero, checked -- could not
+> undo them. Each writer inherited the drift of all the writers before, and after 24
+> writers the style encoder had been averaged into a generic hand. That is precisely
+> the symptom: in 7l every writer came out in the same clean, anonymous script.
+>
+> How it was found, all on CPU: a released draw, 60 training steps, a reset, another
+> draw. The two draws should have been identical and were not -- 27 grey levels apart,
+> and different widths. The adapter's weights were zero, so something else had moved;
+> 40 of 40 batch norms had, after two steps.
+>
+> **The fix: train the adapter with the model in eval mode.** Gradients still flow --
+> eval changes behaviour, not autograd -- while batch norms and dropout stay where
+> generation will find them. Verified on the real checkpoint: 0 of 40 batch norms
+> move, released and after-reset draws are **identical to the pixel** (mean difference
+> 0.000), and the fine-tuned draw differs from released by a mean of 1.0 grey level,
+> so the adapter does change the drawing. Two tests now fail without the fix: one
+> pinning the batch norms, one demanding that a writer leave the model drawing exactly
+> as it did before.
+>
+> **So 7k's and 7l's figures below say nothing about DiffBrush.** Both need re-running.
+> What survives from them: the released-model numbers (identity 45.4%, CER ~13%) and
+> Emuru's 53.7%, which are drawn before any training.
+>
+> Also confirmed while looking: the training objective itself is sound. The released
+> model predicts the noise with an MSE of 0.34 at t=50 down to 0.004 at t=900, where
+> 1.0 would mean the latent scale or the schedule was wrong.
+>
 > ### Stage 3 failed its criterion -- T37's run, 2026-09-18
 >
 > Cell 7k on a T4, 36 minutes: 24 writers, 16 train lines, 4 targets each, 300 LoRA
@@ -1016,7 +1047,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
-| T37 | DiffBrush per-writer fine-tune (stage 3) | **run, criterion failed** | T4, 36 min, 24 writers, 52 s each: identity 45.4% released -> 36.5% fine-tuned, against Emuru 53.7% (which reproduced 7d exactly) · paired difference to Emuru -17.2 [-24.9, -9.0] · CER 12.1% -> 34.6% while HWD distance fell 2.30 -> 1.83 · 67 of 384 train lines squeezed · looks like too strong a recipe rather than a model that cannot learn a hand | CPU, real checkpoint, 2 writers, 2 steps: 0.39M trainable of 163M, 5.5 s a step at batch 2, three conditions scored end to end · DiffBrush's gradient checkpointing turned off in its transformer blocks while training (it raised on frozen weights) · 13 tests, 481 passed | `nib.models.diffbrush_finetune`: noise-prediction loss on the writer's line with another of their lines as style, LoRA on the UNet's `to_q/to_k/to_v/to_out.0`, lines wider than 1024 squeezed and counted · `scripts/evaluate_finetune_diffbrush.py`: 7d's writers and targets, released vs fine-tuned, and `--compare-with` 7d's run scores Emuru released as a third condition against the same reference · 13 tests |
+| T37 | DiffBrush per-writer fine-tune (stage 3) | **two runs invalid: the style encoder drifted; fixed, awaiting a re-run** | the backbone trained in train mode, so 40 batch norms in the style encoder moved every step and no reset could undo them -- each writer inherited the last one's drift · fixed by training in eval mode; verified on the real checkpoint: 0 of 40 move, released and after-reset draws identical to the pixel · what the two runs still say: released 45.4%, Emuru 53.7% · 19 tests | T4, 36 min, 24 writers, 52 s each: identity 45.4% released -> 36.5% fine-tuned, against Emuru 53.7% (which reproduced 7d exactly) · paired difference to Emuru -17.2 [-24.9, -9.0] · CER 12.1% -> 34.6% while HWD distance fell 2.30 -> 1.83 · 67 of 384 train lines squeezed · looks like too strong a recipe rather than a model that cannot learn a hand | CPU, real checkpoint, 2 writers, 2 steps: 0.39M trainable of 163M, 5.5 s a step at batch 2, three conditions scored end to end · DiffBrush's gradient checkpointing turned off in its transformer blocks while training (it raised on frozen weights) · 13 tests, 481 passed | `nib.models.diffbrush_finetune`: noise-prediction loss on the writer's line with another of their lines as style, LoRA on the UNet's `to_q/to_k/to_v/to_out.0`, lines wider than 1024 squeezed and counted · `scripts/evaluate_finetune_diffbrush.py`: 7d's writers and targets, released vs fine-tuned, and `--compare-with` 7d's run scores Emuru released as a third condition against the same reference · 13 tests |
 | T36 | DiffBrush behind the Generator interface | **done; zero-shot identity below Emuru** | `nib.models.diffbrush.DiffBrushGenerator`: loads in 13 s, 38 s a line on CPU, `check_output` passes, `$` refused by name · `--generator diffbrush` in `evaluate_generator.py` and `probe_writer.py`, Emuru the default and unchanged · `paths.third_party` · 11 tests, 468 passed · stage 1 scratch: checkpoint loads exactly, 163M params, charset covers all of CVL and the passages |
 | T35 | A draw that writes beyond its text is not readable | **code done, GPU check pending** | `overrun`: target aligned inside the reading, spaces removed, characters outside at the larger end · rejected at 3+ · TrOCR-small calibration: real CVL 2 of 290 (0.7%), real Amri 0 of 22, generated Amri 2 of 27 (both junk), 7c 13 of 293 · counted as `rejected_for_overrun` · 8 new tests (26) |
 | T34 | Style line widened to whole VAE slices | **code done, GPU check pending** | the released VAE encodes floor(w/8) slices on widths 800-809, so up to 7 px of style went unseen and the cut landed inside the new line · cell 6: sliver starts 4.9% at w%8=0 -> 11.3% at 6-7 · `_as_tensor` pads with white · 4 new tests · 457 passed with T35 · check: next 7g, stray starts down, empties not up |
