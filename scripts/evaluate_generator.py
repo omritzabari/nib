@@ -163,6 +163,26 @@ def build_requests(pack, writers, style_refs, count, seed):
     return requests, truths, consumed
 
 
+def attach_adapter(model, adapter: Path, device: str) -> None:
+    """Put a trained adapter back on the model, at the rank it was trained with.
+
+    The rank is read from the log the training wrote beside it; an adapter of the
+    wrong shape is refused rather than half-loaded.
+    """
+    from nib.models import adapters as adapters_mod
+    from nib.models import finetune
+
+    adapter = Path(adapter)
+    log = adapter.with_suffix(".json")
+    settings = json.loads(log.read_text(encoding="utf-8"))["config"] if log.is_file() else {}
+    config = finetune.FinetuneConfig(
+        rank=int(settings.get("rank", 8)), alpha=int(settings.get("alpha", 16))
+    )
+    finetune.attach_lora(model, config, device=device)
+    restored = adapters_mod.load(model, adapter)
+    print(f"adapter            {adapter.name}, {restored} tensors at rank {config.rank}")
+
+
 def load_generator(
     name: str,
     device: str,
@@ -170,6 +190,7 @@ def load_generator(
     failure_rate: float = 0.0,
     cfg_scale: float | None = None,
     cfg=None,
+    adapter: Path | None = None,
 ):
     if name == "diffbrush":
         # Latent diffusion, trained on IAM alone; its code is cloned into
@@ -187,7 +208,10 @@ def load_generator(
     if name == "emuru":
         from nib.models.emuru import EmuruGenerator
 
-        return EmuruGenerator(device=device, output_height=height)
+        generator = EmuruGenerator(device=device, output_height=height)
+        if adapter is not None:
+            attach_adapter(generator.model, adapter, device)
+        return generator
     if name == "eruku":
         from nib.models.eruku import DEFAULT_CFG_SCALE, ErukuGenerator
 
@@ -295,6 +319,14 @@ def main(argv: list[str] | None = None) -> int:
         "measures CER, or the reported CER would reward the judge's own mistakes.",
     )
     parser.add_argument(
+        "--adapter",
+        type=Path,
+        default=None,
+        help="a trained adapter to load onto the generator -- from "
+        "scripts/adapt_emuru.py. The run's directory is marked, since the model is "
+        "no longer the released one.",
+    )
+    parser.add_argument(
         "--style-by",
         choices=("width", "letters"),
         default="width",
@@ -352,6 +384,8 @@ def main(argv: list[str] | None = None) -> int:
         suffix += f"_by{args.keep}"
     if args.style_by != "width":
         suffix += f"_style{args.style_by}"
+    if args.adapter is not None:
+        suffix += f"_{args.adapter.stem}"
     out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}{suffix}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
 
@@ -385,7 +419,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\nloading {args.generator} on {device} ...")
     generator = load_generator(
-        args.generator, device, height, args.fake_failure_rate, args.cfg_scale, cfg=cfg
+        args.generator,
+        device,
+        height,
+        args.fake_failure_rate,
+        args.cfg_scale,
+        cfg=cfg,
+        adapter=args.adapter,
     )
     if args.candidates > 1:
         from nib.engine.metrics.recogniser import TrOcrRecogniser

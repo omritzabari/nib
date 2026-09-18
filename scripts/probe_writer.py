@@ -104,6 +104,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--candidates", type=int, default=4)
     parser.add_argument("--keep", choices=("readable", "hand"), default="readable")
     parser.add_argument(
+        "--adapter",
+        type=Path,
+        default=None,
+        help="a trained adapter to load onto the generator, from scripts/adapt_emuru.py",
+    )
+    parser.add_argument(
         "--style-by",
         choices=("width", "letters"),
         default="width",
@@ -139,6 +145,8 @@ def main(argv: list[str] | None = None) -> int:
     suffix = "" if args.generator == "emuru" else f"_{args.generator}"
     if args.style_by != "width":
         suffix += f"_style{args.style_by}"
+    if args.adapter is not None:
+        suffix += f"_{args.adapter.stem}"
     out_dir = get_path(cfg, "outputs") / f"probe_{args.photo.stem}{suffix}"
     (out_dir / "blind").mkdir(parents=True, exist_ok=True)
 
@@ -152,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.keep == "hand":
         hand, _ = _embedder(cfg, args.device)
     generator = CandidateGenerator(
-        load_generator(args.generator, args.device, height, cfg=cfg),
+        load_generator(args.generator, args.device, height, cfg=cfg, adapter=args.adapter),
         TrOcrRecogniser(model_name=args.selector, device=args.device, max_new_tokens=64),
         candidates=args.candidates,
         hand=hand,
