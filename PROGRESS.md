@@ -55,6 +55,28 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > - **Notebook:** 7h sets DiffBrush up (clone at `da9addc`, checkpoint kept on
 >   Drive), 7i is stage 2 on 150 CVL lines, 7j is 7g with DiffBrush, 7k is stage 3.
 >
+> **Stage 2, early and without a GPU: zero-shot DiffBrush carries less of the hand
+> than Emuru.** The whole harness was run with DiffBrush on CPU -- 60 lines, four
+> style lines each, two draws (`outputs/eval_diffbrush_lines_refs4_cand2`), 62.9
+> minutes -- and then both models' images for those same 60 requests were scored
+> against one reference locally:
+>
+> | same 60 lines, 43 writers | identity | HWD distance | own writer nearest |
+> |---|---|---|---|
+> | DiffBrush, 2 draws | 49.5% [42.5, 57.1] | **2.05** | 23.3% |
+> | Emuru 7c, 4 draws | **61.7% [54.0, 69.4]** | 2.41 | 55.8% |
+> | real | | 1.19 | 95.3% |
+> | **difference, paired by writer** | **-12.3 [-21.5, -3.2]** | | |
+>
+> Not like for like -- two draws against four -- but the direction is clear and it is
+> what the survey predicted for an IAM-trained model off IAM. Read together with the
+> distance, DiffBrush writes handwriting that looks *more* like handwriting and
+> *less* like this writer: realistic, and somebody else's. So stage 3 is the whole
+> question, as planned. Also from that run: CER 16.9% against 9.7% real; 12 of 60
+> lines reach the canvas edge, but the text is usually complete -- DiffBrush spreads
+> a line to fill 1,024px -- while long texts make it repeat words ("notion notion",
+> "Alas Als"), which T35's rule caught in 11 of 73 draws.
+>
 > **Next, Amri, on a T4:** cells 1-4, then **7h**, then **7k** -- the decisive one,
 > with its criterion written in the cell: `fine-tuned minus Emuru released` wholly
 > above zero, and Emuru's own figure close to 7d's 53.7% or the comparison is void.
@@ -943,7 +965,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
 | T37 | DiffBrush per-writer fine-tune (stage 3) | **code done and run tiny on CPU; cell 7k awaits a T4** | CPU, real checkpoint, 2 writers, 2 steps: 0.39M trainable of 163M, 5.5 s a step at batch 2, three conditions scored end to end · DiffBrush's gradient checkpointing turned off in its transformer blocks while training (it raised on frozen weights) · 13 tests, 481 passed | `nib.models.diffbrush_finetune`: noise-prediction loss on the writer's line with another of their lines as style, LoRA on the UNet's `to_q/to_k/to_v/to_out.0`, lines wider than 1024 squeezed and counted · `scripts/evaluate_finetune_diffbrush.py`: 7d's writers and targets, released vs fine-tuned, and `--compare-with` 7d's run scores Emuru released as a third condition against the same reference · 13 tests |
-| T36 | DiffBrush behind the Generator interface | **done; stage 2 cells 7h-7j ready** | `nib.models.diffbrush.DiffBrushGenerator`: loads in 13 s, 38 s a line on CPU, `check_output` passes, `$` refused by name · `--generator diffbrush` in `evaluate_generator.py` and `probe_writer.py`, Emuru the default and unchanged · `paths.third_party` · 11 tests, 468 passed · stage 1 scratch: checkpoint loads exactly, 163M params, charset covers all of CVL and the passages |
+| T36 | DiffBrush behind the Generator interface | **done; zero-shot identity below Emuru** | `nib.models.diffbrush.DiffBrushGenerator`: loads in 13 s, 38 s a line on CPU, `check_output` passes, `$` refused by name · `--generator diffbrush` in `evaluate_generator.py` and `probe_writer.py`, Emuru the default and unchanged · `paths.third_party` · 11 tests, 468 passed · stage 1 scratch: checkpoint loads exactly, 163M params, charset covers all of CVL and the passages |
 | T35 | A draw that writes beyond its text is not readable | **code done, GPU check pending** | `overrun`: target aligned inside the reading, spaces removed, characters outside at the larger end · rejected at 3+ · TrOCR-small calibration: real CVL 2 of 290 (0.7%), real Amri 0 of 22, generated Amri 2 of 27 (both junk), 7c 13 of 293 · counted as `rejected_for_overrun` · 8 new tests (26) |
 | T34 | Style line widened to whole VAE slices | **code done, GPU check pending** | the released VAE encodes floor(w/8) slices on widths 800-809, so up to 7 px of style went unseen and the cut landed inside the new line · cell 6: sliver starts 4.9% at w%8=0 -> 11.3% at 6-7 · `_as_tensor` pads with white · 4 new tests · 457 passed with T35 · check: next 7g, stray starts down, empties not up |
 | T33 | The system on Amri's own page | **run done: "not bad, still far from my hand"** | T4, 2026-09-16: 22 of 22 lines split, page 2 written 22 of 22 · CER on 5 targets real 8.7% [6.7, 10.7], generated 10.6% [7.1, 14.1] · 108 draws for 27 requests, hand moved the pick in 24 · no identity figure for one writer · build: | `scripts/probe_writer.py`: splits a dictated page, refuses a line count that does not match the passage, sets aside `--skip` lines, learns from 10 lines and writes 5 others again for comparison, then writes page 2's text in the hand · `comparison.png`, `written.png`, `blind/` pairs with `key.json` · notebook cell 7g; needs `MyDrive/nib/personal/passage_page1.jpg` |
