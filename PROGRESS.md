@@ -55,6 +55,28 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > - **Notebook:** 7h sets DiffBrush up (clone at `da9addc`, checkpoint kept on
 >   Drive), 7i is stage 2 on 150 CVL lines, 7j is 7g with DiffBrush, 7k is stage 3.
 >
+> ### The clean stage 3 run: the gentle dose does exactly nothing -- 2026-09-18
+>
+> Cell 7l again with the drift fixed, 16 minutes, same 24 writers:
+>
+> | 96 targets, 24 writers | identity | HWD distance | CER |
+> |---|---|---|---|
+> | DiffBrush released | 40.6% [33.5, 47.3] | 1.97 | 12.3% |
+> | DiffBrush fine-tuned, 60 steps at 2e-5 on `attn1` | 40.5% [33.1, 47.5] | 1.98 | 14.2% |
+> | Emuru released | **53.7% [46.6, 59.7]** | 2.22 | 12.7% |
+>
+> **fine-tuned minus released: -0.2 points [-2.2, +2.1]** -- a tight zero, not an
+> unclear result: the measurement would have seen two points and there are none.
+> Emuru reproduced 53.7% again and the released figure landed where it had, so the
+> harness is sound. The gentle recipe is simply too small to change the drawing --
+> measured directly on CPU as a mean difference of one grey level.
+>
+> **Where that leaves it.** Both ends of the dose range have now been tried, and
+> neither has been measured cleanly *and* had an effect: the strong end (7k) ran
+> under the drift, the gentle end is valid and inert. Whether a dose in between
+> moves the hand without breaking the text is still open, and is being previewed on
+> CPU before any more GPU is spent.
+>
 > ### Both stage 3 runs were measuring a model that drifted -- found 2026-09-18
 >
 > **DiffBrush's style encoder is a ResNet-18 with 40 batch norms, and training moved
