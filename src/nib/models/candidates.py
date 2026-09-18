@@ -86,26 +86,56 @@ REFERENCE_HEIGHT = 64
 """The height the widths above were measured at."""
 
 
+ORDERINGS = ("width", "letters")
+"""How the style lines on offer are ranked. See :func:`style_order`."""
+
+
 def style_order(
     images: Sequence[np.ndarray],
     width_range: tuple[int, int] = STYLE_WIDTH_RANGE,
     reference_height: int = REFERENCE_HEIGHT,
+    style_texts: Sequence[str] | None = None,
+    target: str | None = None,
+    by: str = "width",
 ) -> list[int]:
     """Indices of the style lines, best-suited first.
 
-    Lines inside the range come first, nearest its middle first; lines outside it
-    follow, nearest the range first. None is discarded: a writer whose every line
-    is short still gets drawn from.
+    **By width**, the default and what every run up to 2026-09-18 used: lines inside
+    the range come first, nearest its middle first; lines outside it follow, nearest
+    the range first. Width was measured to matter -- style lines under 500px produced
+    69% mean CER against 26-28% inside the range.
+
+    **By letters**: among lines of a workable width, the one showing most of the
+    characters the target needs comes first. The model is given one line per draw,
+    so a page of twenty lines reaches it one line at a time; a line that shows how
+    this writer forms the letters about to be written is better evidence than a line
+    that happens to be 800px wide. Falls back to width when the style lines carry no
+    text, since the characters are then unknown.
     """
+    if by not in ORDERINGS:
+        raise GeneratorError(f"style ordering must be one of {ORDERINGS}, got {by!r}")
     low, high = width_range
     middle = (low + high) / 2
 
-    def key(index: int) -> tuple[int, float]:
+    def width_of(index: int) -> float:
         image = np.asarray(images[index])
-        width = image.shape[1] * reference_height / max(1, image.shape[0])
-        if low <= width <= high:
-            return (0, abs(width - middle))
-        return (1, min(abs(width - low), abs(width - high)))
+        return image.shape[1] * reference_height / max(1, image.shape[0])
+
+    def coverage(index: int) -> float:
+        wanted = set(target or "") - {" "}
+        if not wanted:
+            return 0.0
+        return -len(wanted & set(style_texts[index])) / len(wanted)
+
+    def key(index: int) -> tuple[int, float, float]:
+        width = width_of(index)
+        outside = not (low <= width <= high)
+        # Outside the range, all that matters is how far outside.
+        if outside:
+            return (1, min(abs(width - low), abs(width - high)), 0.0)
+        if by == "letters" and style_texts is not None and target:
+            return (0, coverage(index), abs(width - middle))
+        return (0, abs(width - middle), 0.0)
 
     return sorted(range(len(images)), key=key)
 
@@ -238,6 +268,7 @@ class CandidateGenerator:
         width_range: tuple[int, int] = STYLE_WIDTH_RANGE,
         hand: Embedder | None = None,
         accept_overrun: int = ACCEPT_OVERRUN,
+        style_by: str = "width",
     ) -> None:
         if candidates < 1:
             raise GeneratorError(f"need at least one candidate, got {candidates}")
@@ -247,6 +278,7 @@ class CandidateGenerator:
         self.accept_cer = accept_cer
         self.accept_overrun = accept_overrun
         self.width_range = width_range
+        self.style_by = style_by
         self.hand = hand
         self.selection = SelectionLog(mode="readable" if hand is None else "hand")
         # Over the images this wrapper returns, not over every draw: a rejected
@@ -259,7 +291,8 @@ class CandidateGenerator:
     @property
     def name(self) -> str:
         rule = "" if self.hand is None else "-by-hand"
-        return f"{self.base.name}+best-of-{self.candidates}{rule}"
+        chosen = "" if self.style_by == "width" else f"-style-by-{self.style_by}"
+        return f"{self.base.name}+best-of-{self.candidates}{rule}{chosen}"
 
     @property
     def output_height(self) -> int:
@@ -269,7 +302,13 @@ class CandidateGenerator:
         return [self._one(request) for request in requests]
 
     def _one(self, request: GenerationRequest) -> np.ndarray:
-        order = style_order(request.style_images, self.width_range)
+        order = style_order(
+            request.style_images,
+            self.width_range,
+            style_texts=request.style_texts,
+            target=request.text,
+            by=self.style_by,
+        )
         draws: list[Draw] = []
         empty_draws = 0
         used = 0

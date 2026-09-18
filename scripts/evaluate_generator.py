@@ -295,6 +295,15 @@ def main(argv: list[str] | None = None) -> int:
         "measures CER, or the reported CER would reward the judge's own mistakes.",
     )
     parser.add_argument(
+        "--style-by",
+        choices=("width", "letters"),
+        default="width",
+        help="how the style line for each draw is chosen from the pool: by width "
+        "alone, or by which line shows most of the characters the target needs. "
+        "The model sees one line per draw, so this decides what evidence of the "
+        "hand it gets.",
+    )
+    parser.add_argument(
         "--keep",
         choices=("readable", "hand"),
         default="readable",
@@ -341,6 +350,8 @@ def main(argv: list[str] | None = None) -> int:
         suffix += f"_cand{args.candidates}"
     if args.keep != "readable":
         suffix += f"_by{args.keep}"
+    if args.style_by != "width":
+        suffix += f"_style{args.style_by}"
     out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}{suffix}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
 
@@ -396,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
             candidates=args.candidates,
             accept_cer=(candidates_mod.ACCEPT_CER if args.accept_cer is None else args.accept_cer),
             hand=hand,
+            style_by=args.style_by,
         )
     print(f"  {generator.name}, output height {generator.output_height}px")
 

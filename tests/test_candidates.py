@@ -84,6 +84,46 @@ def test_style_lines_in_the_working_width_range_come_first():
     assert style_order(images) == [2, 3, 0, 1]
 
 
+# ---------------------------------------------------------------------------
+# Choosing the style line by what it shows
+#
+# The model sees one of the writer's lines per draw. Ordering by width alone
+# ignores that a line showing the letters the target needs is better evidence of
+# how this writer forms them.
+# ---------------------------------------------------------------------------
+
+
+def test_by_letters_the_line_showing_most_of_the_target_is_first():
+    images = [_line(800), _line(800), _line(800)]
+    texts = ["oooo oooo", "quick zephyr", "aeiou"]
+
+    order = style_order(images, style_texts=texts, target="quiz zephyr", by="letters")
+
+    assert order[0] == 1
+
+
+def test_by_letters_a_line_of_the_wrong_width_still_loses():
+    """Width was measured: lines under 500px read at 69% CER against 26-28% inside
+    the range. A perfect letter match on a short line is still a bad draw."""
+    images = [_line(300), _line(800)]
+    texts = ["quiz zephyr", "nothing alike"]
+
+    order = style_order(images, style_texts=texts, target="quiz zephyr", by="letters")
+
+    assert order[0] == 1
+
+
+def test_without_style_texts_it_falls_back_to_width():
+    images = [_line(300), _line(820), _line(600)]
+
+    assert style_order(images, target="anything", by="letters") == style_order(images)
+
+
+def test_an_unknown_ordering_is_refused():
+    with pytest.raises(GeneratorError, match="letters"):
+        style_order([_line(800)], by="colour")
+
+
 def test_width_is_judged_at_the_reference_height():
     tall = np.full((128, 1600), 255, dtype=np.uint8)  # 800px at 64px high
     assert style_order([_line(300), tall]) == [1, 0]

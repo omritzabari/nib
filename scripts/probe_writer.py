@@ -103,6 +103,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--targets", type=int, default=5)
     parser.add_argument("--candidates", type=int, default=4)
     parser.add_argument("--keep", choices=("readable", "hand"), default="readable")
+    parser.add_argument(
+        "--style-by",
+        choices=("width", "letters"),
+        default="width",
+        help="how each draw's style line is chosen from the page: by width, or by "
+        "which line shows most of the characters this line needs.",
+    )
     parser.add_argument("--selector", default="microsoft/trocr-small-handwritten")
     parser.add_argument(
         "--generator",
@@ -130,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ensure_dirs(cfg, "outputs")
     suffix = "" if args.generator == "emuru" else f"_{args.generator}"
+    if args.style_by != "width":
+        suffix += f"_style{args.style_by}"
     out_dir = get_path(cfg, "outputs") / f"probe_{args.photo.stem}{suffix}"
     (out_dir / "blind").mkdir(parents=True, exist_ok=True)
 
@@ -147,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         TrOcrRecogniser(model_name=args.selector, device=args.device, max_new_tokens=64),
         candidates=args.candidates,
         hand=hand,
+        style_by=args.style_by,
     )
     style_images = [lines[n - 1] for n in page]
     style_texts = [texts[n - 1] for n in page]
