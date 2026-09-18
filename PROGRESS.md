@@ -55,6 +55,37 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > - **Notebook:** 7h sets DiffBrush up (clone at `da9addc`, checkpoint kept on
 >   Drive), 7i is stage 2 on 150 CVL lines, 7j is 7g with DiffBrush, 7k is stage 3.
 >
+> ### Stage 3 failed its criterion -- T37's run, 2026-09-18
+>
+> Cell 7k on a T4, 36 minutes: 24 writers, 16 train lines, 4 targets each, 300 LoRA
+> steps at rank 8 and lr 1e-4, 52 s a writer. Saved to Drive
+> (`results/finetune_diffbrush_w24_t16_s300_r8`).
+>
+> | 96 targets, 24 writers, one reference | identity | HWD distance | own writer nearest | CER |
+> |---|---|---|---|---|
+> | DiffBrush released | 45.4% [36.9, 53.3] | 2.30 | 50.0% | 12.1% |
+> | DiffBrush fine-tuned | **36.5% [28.9, 44.4]** | **1.83** | 20.8% | **34.6%** |
+> | Emuru released | **53.7% [46.6, 59.7]** | 2.22 | 83.3% | 12.7% |
+> | real | | 0.77 | 100.0% | 11.0% |
+>
+> - fine-tuned minus released: **-8.9 [-17.5, +1.9]**, not separable from zero.
+> - fine-tuned minus Emuru released: **-17.2 [-24.9, -9.0]**, real, and the wrong way.
+> - **The harness checks out:** Emuru's 53.7% reproduces 7d exactly, so the reference
+>   and the pairing are sound.
+>
+> **The criterion, set before the run, failed.** But the way it failed is not "the
+> hand did not move": HWD distance fell from 2.30 to 1.83, the largest move of any
+> condition -- the output became *more* like real handwriting -- while identity fell
+> and CER nearly tripled, 12.1% to 34.6%. That is the signature of a recipe that
+> overwhelms the text: 300 steps at lr 1e-4 over 16 lines is 37 passes through each
+> line, and the adapter sits on the attention that carries the glyphs as well as on
+> the rest. A second suspect: **67 of 384 training lines (17%) were squeezed** to the
+> 1,024px canvas, which narrows letters, and writers differ a lot in how many
+> (0 to 13).
+>
+> **Not yet looked at:** the 96 adapted images, which would say whether it wrote the
+> wrong text or the right text badly.
+>
 > **Product decision, Amri, 2026-09-18: enrolment always comes with the text.**
 > A new user either copies a passage the system gives them, or uploads a page of
 > their own *and types its transcription line by line*. Either way the text of every
@@ -985,7 +1016,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T26 | Dictated passage, two pages | **done, awaiting Amri's handwriting** | each page holds all 79 charset characters, every lowercase letter at least 3 times, lines of 35-44 characters · 7 tests |
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
-| T37 | DiffBrush per-writer fine-tune (stage 3) | **code done and run tiny on CPU; cell 7k awaits a T4** | CPU, real checkpoint, 2 writers, 2 steps: 0.39M trainable of 163M, 5.5 s a step at batch 2, three conditions scored end to end · DiffBrush's gradient checkpointing turned off in its transformer blocks while training (it raised on frozen weights) · 13 tests, 481 passed | `nib.models.diffbrush_finetune`: noise-prediction loss on the writer's line with another of their lines as style, LoRA on the UNet's `to_q/to_k/to_v/to_out.0`, lines wider than 1024 squeezed and counted · `scripts/evaluate_finetune_diffbrush.py`: 7d's writers and targets, released vs fine-tuned, and `--compare-with` 7d's run scores Emuru released as a third condition against the same reference · 13 tests |
+| T37 | DiffBrush per-writer fine-tune (stage 3) | **run, criterion failed** | T4, 36 min, 24 writers, 52 s each: identity 45.4% released -> 36.5% fine-tuned, against Emuru 53.7% (which reproduced 7d exactly) · paired difference to Emuru -17.2 [-24.9, -9.0] · CER 12.1% -> 34.6% while HWD distance fell 2.30 -> 1.83 · 67 of 384 train lines squeezed · looks like too strong a recipe rather than a model that cannot learn a hand | CPU, real checkpoint, 2 writers, 2 steps: 0.39M trainable of 163M, 5.5 s a step at batch 2, three conditions scored end to end · DiffBrush's gradient checkpointing turned off in its transformer blocks while training (it raised on frozen weights) · 13 tests, 481 passed | `nib.models.diffbrush_finetune`: noise-prediction loss on the writer's line with another of their lines as style, LoRA on the UNet's `to_q/to_k/to_v/to_out.0`, lines wider than 1024 squeezed and counted · `scripts/evaluate_finetune_diffbrush.py`: 7d's writers and targets, released vs fine-tuned, and `--compare-with` 7d's run scores Emuru released as a third condition against the same reference · 13 tests |
 | T36 | DiffBrush behind the Generator interface | **done; zero-shot identity below Emuru** | `nib.models.diffbrush.DiffBrushGenerator`: loads in 13 s, 38 s a line on CPU, `check_output` passes, `$` refused by name · `--generator diffbrush` in `evaluate_generator.py` and `probe_writer.py`, Emuru the default and unchanged · `paths.third_party` · 11 tests, 468 passed · stage 1 scratch: checkpoint loads exactly, 163M params, charset covers all of CVL and the passages |
 | T35 | A draw that writes beyond its text is not readable | **code done, GPU check pending** | `overrun`: target aligned inside the reading, spaces removed, characters outside at the larger end · rejected at 3+ · TrOCR-small calibration: real CVL 2 of 290 (0.7%), real Amri 0 of 22, generated Amri 2 of 27 (both junk), 7c 13 of 293 · counted as `rejected_for_overrun` · 8 new tests (26) |
 | T34 | Style line widened to whole VAE slices | **code done, GPU check pending** | the released VAE encodes floor(w/8) slices on widths 800-809, so up to 7 px of style went unseen and the cut landed inside the new line · cell 6: sliver starts 4.9% at w%8=0 -> 11.3% at 6-7 · `_as_tensor` pads with white · 4 new tests · 457 passed with T35 · check: next 7g, stray starts down, empties not up |
