@@ -55,6 +55,27 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > - **Notebook:** 7h sets DiffBrush up (clone at `da9addc`, checkpoint kept on
 >   Drive), 7i is stage 2 on 150 CVL lines, 7j is 7g with DiffBrush, 7k is stage 3.
 >
+> **Product decision, Amri, 2026-09-18: enrolment always comes with the text.**
+> A new user either copies a passage the system gives them, or uploads a page of
+> their own *and types its transcription line by line*. Either way the text of every
+> enrolment line is known, so no recogniser stands in the enrolment path and its
+> 11% error rate is not inherited. This is what makes a per-writer fine-tune possible
+> at all: training needs a text for every line. DiffBrush needs no transcription to
+> *write*, only to be trained; Emuru needs one either way.
+>
+> **The plan that follows, in order:** (1) 7k says whether a per-writer fine-tune
+> buys the hand; (2) if it does, further training on more writers -- CVL's 216
+> training-split writers are here, IAM's site was down and DiffBrush has it already,
+> font-rendered text is cheap but is not a hand -- to move the starting point for
+> every new user; (3) with a better starting point, the per-writer fine-tune needs
+> fewer lines, which is what "one paragraph" would take. The GPU cost of (2) is not
+> measured; it is a continuation, not the authors' 8x4090 four days.
+>
+> **A licence note for the product, not for the experiment.** DiffBrush's code is
+> MIT, but its released weights were trained on IAM, whose licence is non-commercial
+> research. Fine for this project; to be checked before anything ships, where a base
+> trained on synthetic fonts -- as Emuru's was -- is the cleaner ground.
+>
 > **Stage 2, early and without a GPU: zero-shot DiffBrush carries less of the hand
 > than Emuru.** The whole harness was run with DiffBrush on CPU -- 60 lines, four
 > style lines each, two draws (`outputs/eval_diffbrush_lines_refs4_cand2`), 62.9
