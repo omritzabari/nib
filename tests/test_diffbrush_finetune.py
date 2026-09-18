@@ -138,11 +138,13 @@ class _Checkpoint(torch.autograd.Function):
 
 
 class TinyTransformerBlock(nn.Module):
-    """Like DiffBrush's ``BasicTransformerBlock``: attention, checkpointed by default."""
+    """Like DiffBrush's ``BasicTransformerBlock``: ``attn1`` over the image alone,
+    ``attn2`` bringing in the style and the glyphs, and checkpointing by default."""
 
     def __init__(self, checkpoint=True):
         super().__init__()
-        self.attention = TinyAttention()
+        self.attn1 = TinyAttention()
+        self.attn2 = TinyAttention()
         self.checkpoint = checkpoint
 
     def forward(self, x, context):
@@ -151,7 +153,8 @@ class TinyTransformerBlock(nn.Module):
         return self._forward(x, context)
 
     def _forward(self, x, context):
-        return x + self.attention(x, context)
+        x = x + self.attn1(x, x)
+        return x + self.attn2(x, context)
 
 
 class TinyUNet(nn.Module):
@@ -210,7 +213,7 @@ def test_attaching_lora_trains_only_the_adapter_and_changes_nothing_yet():
     t = torch.tensor([10])
     before = unet(x, t, style, content)
 
-    trainable = attach_lora(unet, DiffBrushFinetuneConfig(rank=2, alpha=2))
+    trainable = attach_lora(unet, DiffBrushFinetuneConfig(rank=2, alpha=2, scope="all"))
 
     names = [name for name, p in unet.named_parameters() if p.requires_grad]
     assert trainable == sum(p.numel() for p in unet.parameters() if p.requires_grad)
@@ -222,6 +225,25 @@ def test_attaching_lora_trains_only_the_adapter_and_changes_nothing_yet():
     }
     assert any("to_out.0.lora_" in name for name in names)
     torch.testing.assert_close(unet(x, t, style, content), before)
+
+
+def test_the_default_scope_leaves_the_layers_that_carry_the_text_alone():
+    """300 steps on every attention layer tripled CER (T37): the adapter sat on the
+    cross-attention that ties the drawing to the glyphs as well."""
+    from nib.models.diffbrush_finetune import attach_lora
+
+    unet = TinyUNet()
+
+    attach_lora(unet, DiffBrushFinetuneConfig(rank=2, alpha=2))
+
+    adapted = {name for name, p in unet.named_parameters() if p.requires_grad}
+    assert adapted, "nothing was adapted"
+    assert all("attn1." in name for name in adapted)
+
+
+def test_an_unknown_scope_is_refused():
+    with pytest.raises(ValueError, match="scope"):
+        DiffBrushFinetuneConfig(scope="everything")
 
 
 def test_training_moves_only_the_adapter_and_leaves_the_model_ready_to_generate():
@@ -249,7 +271,28 @@ def test_training_moves_only_the_adapter_and_leaves_the_model_ready_to_generate(
     assert not unet.training
 
 
-def test_a_line_wider_than_the_canvas_is_counted_in_the_report():
+def test_a_line_wider_than_the_canvas_is_left_out_of_training_and_counted():
+    """Squeezing a line to the canvas narrows its letters, so by default those lines
+    are not trained on at all."""
+    from nib.models.diffbrush_finetune import attach_lora, train_writer
+
+    unet = TinyUNet()
+    attach_lora(unet, DiffBrushFinetuneConfig(rank=2, alpha=2))
+
+    report = train_writer(
+        unet,
+        TinyVAE(),
+        [_line(1200), _line(700), _line(650)],
+        ["a wide line", "a short one", "another short one"],
+        _glyphs(),
+        DiffBrushFinetuneConfig(rank=2, alpha=2, steps=1),
+    )
+
+    assert report.skipped == 1
+    assert report.squeezed == 0
+
+
+def test_a_line_wider_than_the_canvas_is_squeezed_when_asked_to_keep_it():
     from nib.models.diffbrush_finetune import attach_lora, train_writer
 
     unet = TinyUNet()
@@ -261,10 +304,29 @@ def test_a_line_wider_than_the_canvas_is_counted_in_the_report():
         [_line(1200), _line(700)],
         ["a wide line", "a short one"],
         _glyphs(),
+        DiffBrushFinetuneConfig(rank=2, alpha=2, steps=1, skip_wide=False),
+    )
+
+    assert report.squeezed == 1 and report.skipped == 0
+
+
+def test_a_writer_left_with_too_few_narrow_lines_keeps_the_wide_ones():
+    """Better a squeezed line than a writer who cannot be trained at all."""
+    from nib.models.diffbrush_finetune import attach_lora, train_writer
+
+    unet = TinyUNet()
+    attach_lora(unet, DiffBrushFinetuneConfig(rank=2, alpha=2))
+
+    report = train_writer(
+        unet,
+        TinyVAE(),
+        [_line(1200), _line(1300), _line(700)],
+        ["a wide line", "another wide one", "a short one"],
+        _glyphs(),
         DiffBrushFinetuneConfig(rank=2, alpha=2, steps=1),
     )
 
-    assert report.squeezed == 1
+    assert report.skipped == 0 and report.squeezed == 2
 
 
 def test_training_without_an_adapter_is_refused():

@@ -49,8 +49,18 @@ import numpy as np
 from nib.models.diffbrush import CANVAS_WIDTH, NATIVE_HEIGHT, encode_text, prepare_style
 from nib.models.finetune import TrainReport, _ignore_stale_torchao
 
-LORA_TARGETS = ("to_q", "to_k", "to_v", "to_out.0")
-"""The attention projections of every ``CrossAttention`` in DiffBrush's UNet."""
+LORA_SCOPES = {
+    "style": ("attn1.to_q", "attn1.to_k", "attn1.to_v", "attn1.to_out.0"),
+    "all": ("to_q", "to_k", "to_v", "to_out.0"),
+}
+"""Which attention projections the adapter sits on.
+
+Each of DiffBrush's transformer blocks holds three attentions: ``attn1`` over the
+drawing alone, ``attnc`` over the conditioning, and ``attn2`` which ties the
+drawing to the style and to the glyphs. ``all`` adapts every one of them, which is
+what T37's run did: identity fell and CER went from 12.1% to 34.6% -- the words
+came out as the right words drawn as mush, so the layers that carry the text had
+moved too. ``style`` leaves those alone."""
 
 LORA_MARKER = "lora_"
 
@@ -70,15 +80,25 @@ class DiffBrushFinetuneConfig:
     """LoRA scales its correction by alpha / rank: 1 here."""
 
     dropout: float = 0.0
-    learning_rate: float = 1e-4
-    steps: int = 300
+    learning_rate: float = 2e-5
+    steps: int = 60
+    """Sixty steps at 2e-5, after 300 at 1e-4 blurred the letters (T37). Sixteen
+    lines at batch 2 is seven or eight passes over each, not thirty-seven."""
+
     batch_size: int = 2
+    scope: str = "style"
+    skip_wide: bool = True
+    """Leave out training lines wider than the canvas rather than squeezing them:
+    67 of T37's 384 lines were squeezed, up to 13 of one writer's 16."""
+
     max_grad_norm: float = 1.0
     seed: int = 0
 
     def __post_init__(self) -> None:
         if self.rank < 1 or self.steps < 1 or self.batch_size < 1:
             raise ValueError(f"rank, steps and batch_size must be positive: {self}")
+        if self.scope not in LORA_SCOPES:
+            raise ValueError(f"scope must be one of {tuple(LORA_SCOPES)}, got {self.scope!r}")
 
 
 DEFAULT_CONFIG = DiffBrushFinetuneConfig()
@@ -88,6 +108,9 @@ DEFAULT_CONFIG = DiffBrushFinetuneConfig()
 class DiffBrushTrainReport(TrainReport):
     squeezed: int = 0
     """Training lines wider than the canvas, resized to fit."""
+
+    skipped: int = 0
+    """Training lines left out for being wider than the canvas."""
 
 
 def prepare_target(
@@ -161,7 +184,7 @@ def attach_lora(unet, config: DiffBrushFinetuneConfig = DEFAULT_CONFIG, device=N
         r=config.rank,
         lora_alpha=config.alpha,
         lora_dropout=config.dropout,
-        target_modules=list(LORA_TARGETS),
+        target_modules=list(LORA_SCOPES[config.scope]),
     )
     inject_adapter_in_model(lora, unet)
     if device is not None:
@@ -203,6 +226,18 @@ def train_writer(
     alpha_hat = torch.cumprod(1.0 - torch.linspace(BETA_START, BETA_END, NOISE_STEPS), dim=0)
 
     prepared = [prepare_target(image) for image in images]
+    keep = list(range(len(images)))
+    skipped = 0
+    if config.skip_wide:
+        narrow = [i for i in keep if not prepared[i][1]]
+        # A writer whose lines are nearly all wide would otherwise be left with
+        # nothing to learn from; a squeezed line beats no training at all.
+        if len(narrow) >= 2:
+            skipped = len(keep) - len(narrow)
+            keep = narrow
+    prepared = [prepared[i] for i in keep]
+    images = [images[i] for i in keep]
+    texts = [texts[i] for i in keep]
     squeezed = sum(was_squeezed for _, was_squeezed in prepared)
     with torch.no_grad():
         canvases = torch.from_numpy(np.stack([canvas for canvas, _ in prepared])).to(device)
@@ -258,4 +293,5 @@ def train_writer(
         seconds=time.perf_counter() - started,
         losses=losses,
         squeezed=squeezed,
+        skipped=skipped,
     )

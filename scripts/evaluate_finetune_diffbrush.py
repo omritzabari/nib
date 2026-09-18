@@ -70,6 +70,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--candidates", type=int, default=4)
     parser.add_argument("--selector", default="microsoft/trocr-small-handwritten")
     parser.add_argument(
+        "--scope",
+        choices=tuple(tune.LORA_SCOPES),
+        default=tune.DEFAULT_CONFIG.scope,
+        help="which attention the adapter sits on: 'style' leaves the layers that "
+        "tie the drawing to the glyphs alone, 'all' adapts them too, as T37 did.",
+    )
+    parser.add_argument(
+        "--keep-wide",
+        action="store_true",
+        help="train on lines wider than the canvas, squeezed to fit, instead of leaving them out.",
+    )
+    parser.add_argument(
         "--compare-with",
         type=Path,
         default=None,
@@ -89,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         learning_rate=args.learning_rate,
         steps=args.steps,
         batch_size=args.batch_size,
+        scope=args.scope,
+        skip_wide=not args.keep_wide,
         seed=seed,
     )
 
@@ -105,6 +119,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ensure_dirs(cfg, "outputs")
     name = f"finetune_diffbrush_w{len(plan)}_t{args.train_lines}_s{args.steps}_r{args.rank}"
+    if config.scope != tune.DEFAULT_CONFIG.scope or not config.skip_wide:
+        name += f"_{config.scope}" + ("" if config.skip_wide else "_wide")
     out_dir = get_path(cfg, "outputs") / name
     for sub in ("baseline", "adapted"):
         (out_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -157,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             "seconds": report.seconds,
             "losses": report.losses,
             "squeezed": report.squeezed,
+            "skipped": report.skipped,
         }
         for target, before, after in zip(targets, baseline, adapted, strict=True):
             records.append(
@@ -171,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         elapsed = (time.perf_counter() - started) / 60
         print(
             f"  {number:>3}/{len(plan)} writer {writer}: {report.summary()}, "
-            f"{report.squeezed} squeezed   "
+            f"{report.squeezed} squeezed, {report.skipped} left out   "
             f"[{elapsed:.0f} min, about {elapsed / number * (len(plan) - number):.0f} to go]",
             flush=True,
         )
@@ -225,6 +242,7 @@ def measure(args, pack, by_writer, plan, kept, conditions, training, generator, 
         "max": float(seconds.max()),
     }
     results["squeezed_train_lines"] = int(sum(t["squeezed"] for t in training.values()))
+    results["skipped_train_lines"] = int(sum(t["skipped"] for t in training.values()))
 
     real = [pack[r["key"]].image for r in kept]
     ids = [r["writer_id"] for r in kept]
@@ -326,7 +344,8 @@ def measure(args, pack, by_writer, plan, kept, conditions, training, generator, 
     print(f"  CER       {cer_line}")
     print(
         f"  training  {seconds.mean():.0f}s a writer on average, {seconds.max():.0f}s at most; "
-        f"{results['squeezed_train_lines']} train lines squeezed to the canvas"
+        f"{results['squeezed_train_lines']} train lines squeezed, "
+        f"{results['skipped_train_lines']} left out for being wider than the canvas"
     )
     return results
 
