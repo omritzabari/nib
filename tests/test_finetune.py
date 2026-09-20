@@ -8,6 +8,8 @@ on a CPU in seconds and needs no download.
 
 from __future__ import annotations
 
+import random
+
 import numpy as np
 import pytest
 
@@ -183,6 +185,43 @@ def test_training_with_another_writer_in_front_lowers_the_loss():
     report = finetune.train_writer(model, LINES, TEXTS, config, others=OTHERS)
 
     assert np.mean(report.losses[-8:]) < np.mean(report.losses[:8])
+
+
+def test_a_prefix_in_context_same_comes_from_the_writers_own_other_lines():
+    """The task the system actually performs: one of the writer's lines in front,
+    another of theirs to write. 'other' trained the opposite and cost 17.9 points."""
+    rng = random.Random(0)
+    groups = ["a", "a", "b", "b", "b"]
+
+    picks = {finetune.pick_prefix(rng, 3, groups) for _ in range(200)}
+
+    assert picks == {2, 4}
+
+
+def test_a_writer_with_a_single_line_cannot_be_paired():
+    with pytest.raises(ValueError, match="two lines"):
+        finetune.pick_prefix(random.Random(0), 0, ["a", "b", "b"])
+
+
+def test_training_on_the_writers_own_pairs_lowers_the_loss():
+    model = TinyEmuru()
+    finetune.attach_lora(model, FinetuneConfig(dropout=0.0))
+    config = FinetuneConfig(
+        steps=80, learning_rate=1e-2, dropout=0.0, noise=0.0, batch_size=2, context="same"
+    )
+
+    report = finetune.train_writer(model, LINES, TEXTS, config)
+
+    assert np.mean(report.losses[-8:]) < np.mean(report.losses[:8])
+
+
+def test_context_same_needs_two_lines_from_every_writer():
+    model = TinyEmuru()
+    finetune.attach_lora(model, FinetuneConfig())
+    config = FinetuneConfig(steps=1, context="same")
+
+    with pytest.raises(ValueError, match="two lines"):
+        finetune.train_writer(model, LINES, TEXTS, config, groups=["a"] * (len(LINES) - 1) + ["b"])
 
 
 def test_context_other_without_other_writers_is_refused():

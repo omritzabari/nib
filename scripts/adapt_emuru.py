@@ -25,6 +25,7 @@ import argparse
 import json
 import random
 import time
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -57,6 +58,15 @@ def main(argv: list[str] | None = None) -> int:
         default=4000,
         help="training lines to draw on, of the 6,000-odd the training writers have",
     )
+    parser.add_argument(
+        "--objective",
+        choices=("reconstruct", "imitate"),
+        default="imitate",
+        help="reconstruct: each line on its own, which is how Emuru was pre-trained "
+        "and what the first general adaptation did -- it cost 18 identity points. "
+        "imitate: one of the writer's lines in front and another of theirs to write, "
+        "with the loss on the second only, which is the task the system performs.",
+    )
     parser.add_argument("--noise", type=float, default=finetune.DEFAULT_CONFIG.noise)
     parser.add_argument("--name", default=None, help="adapter filename; default from the settings")
     parser.add_argument("--device", default="cuda")
@@ -73,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         steps=args.steps,
         batch_size=args.batch_size,
         noise=args.noise,
+        context="same" if args.objective == "imitate" else "own",
         seed=seed,
     )
 
@@ -85,6 +96,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"held out  {len(split.writers['test'])} writers, untouched by this")
     print(f"adapter   {config}")
     print(f"passes    {args.steps * args.batch_size / len(lines):.1f} over the training lines")
+    if config.context == "same":
+        # A line whose writer has no second line here cannot be paired with one of
+        # their own, so it is left out and said so rather than quietly dropped.
+        counts = Counter(line.writer_id for line in lines)
+        kept = [line for line in lines if counts[line.writer_id] > 1]
+        print(f"paired    {len(kept)} of {len(lines)} lines whose writer has another line here")
+        lines = kept
 
     from nib.models.emuru import EmuruGenerator
 
@@ -102,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         [line.text for line in lines],
         config,
         device=args.device,
+        groups=[line.writer_id for line in lines],
     )
     print(f"\n{report.summary()}")
     tenth = max(1, len(report.losses) // 10)
@@ -111,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  loss by tenth: " + "  ".join(f"{value:.4f}" for value in marks))
 
     ensure_dirs(cfg, "checkpoints")
-    name = args.name or f"emuru_cvl_r{args.rank}_s{args.steps}.pt"
+    name = args.name or f"emuru_cvl_r{args.rank}_s{args.steps}_{args.objective}.pt"
     path = adapters.save(emuru.model, get_path(cfg, "checkpoints") / name)
     log = path.with_suffix(".json")
     log.write_text(

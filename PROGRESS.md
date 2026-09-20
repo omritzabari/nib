@@ -55,6 +55,26 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > - **Notebook:** 7h sets DiffBrush up (clone at `da9addc`, checkpoint kept on
 >   Drive), 7i is stage 2 on 150 CVL lines, 7j is 7g with DiffBrush, 7k is stage 3.
 >
+> ### The last planned experiment on this model is written -- T40, 2026-09-20
+>
+> `--objective imitate` in `scripts/adapt_emuru.py`, cells 7p and 7q. Each training
+> sample is **two lines by the same writer**: one in front, one to write, the loss
+> counted only on the second -- `context="same"` in `nib.models.finetune`, which is
+> 7f with "another writer" replaced by "the same writer". It is the task the system
+> performs at generation time and the only training objective never tried.
+> `pick_prefix` refuses a writer with a single line; a line whose writer has no
+> second line here is left out and counted. 4 new tests, 499 pass; smoked on CPU
+> with the real checkpoint. A paired canvas is twice as wide, so 2,000 steps should
+> take about 27 minutes rather than 12 -- arithmetic, not measured.
+>
+> **Amri, 2026-09-20: he will not spend GPU on this model again without a real
+> reason to expect a breakthrough**, and he is unwilling to settle for what the
+> system scores now. So alongside this, `docs/review-request-2026-09-20.md` holds a
+> complete brief -- goal, constraints, all twelve results with their intervals, the
+> ruled-out explanations -- to be given to other models for an independent review
+> and for proposals that leave this plateau. What comes back decides whether 7p/7q
+> run at all.
+>
 > ### Both ran, both negative -- and the pattern is now unmistakable, 2026-09-20
 >
 > | same 150 requests, one reference, 73 writers | identity | FID | CER gap |
@@ -1164,6 +1184,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 | T27 | Emuru with two style lines, measured | **done, negative** | T4: identity 42.3% [36.2, 48.7] against 56.5% [50.9, 61.9] for one line · FID 90.64 against 67.70 · CER 59.6% against 30.4% · all three separate |
 | T28 | Generation with quality control | **done** | T4, 300 lines: CER 12.5% [10.5, 14.7] against 10.7% real (gap +1.8, was +19.1) · FID 55.87 [52.60, 59.13], was 67.70 -- separate · identity 65.0% [60.3, 69.6], was 56.5%; paired per writer +8.3 points [2.4, 14.8] · 1.35 draws a line, 63 min · 0 excluded · 13 tests |
 | T37 | DiffBrush per-writer fine-tune (stage 3) | **done, negative: closed** | after the drift fix, 24 writers: identity 40.5% fine-tuned against 40.6% released, difference -0.2 [-2.2, 2.1] -- a tight zero · strong doses (150, 300 steps at 1e-4) break the text without approaching the hand · the bug found on the way: the backbone trained in train mode, so 40 batch norms in the style encoder drifted and no reset could undo them; fixed by training in eval mode, verified on the real checkpoint (0 of 40 move, released and after-reset draws identical to the pixel) · 19 tests | the backbone trained in train mode, so 40 batch norms in the style encoder moved every step and no reset could undo them -- each writer inherited the last one's drift · fixed by training in eval mode; verified on the real checkpoint: 0 of 40 move, released and after-reset draws identical to the pixel · what the two runs still say: released 45.4%, Emuru 53.7% · 19 tests | T4, 36 min, 24 writers, 52 s each: identity 45.4% released -> 36.5% fine-tuned, against Emuru 53.7% (which reproduced 7d exactly) · paired difference to Emuru -17.2 [-24.9, -9.0] · CER 12.1% -> 34.6% while HWD distance fell 2.30 -> 1.83 · 67 of 384 train lines squeezed · looks like too strong a recipe rather than a model that cannot learn a hand | CPU, real checkpoint, 2 writers, 2 steps: 0.39M trainable of 163M, 5.5 s a step at batch 2, three conditions scored end to end · DiffBrush's gradient checkpointing turned off in its transformer blocks while training (it raised on frozen weights) · 13 tests, 481 passed | `nib.models.diffbrush_finetune`: noise-prediction loss on the writer's line with another of their lines as style, LoRA on the UNet's `to_q/to_k/to_v/to_out.0`, lines wider than 1024 squeezed and counted · `scripts/evaluate_finetune_diffbrush.py`: 7d's writers and targets, released vs fine-tuned, and `--compare-with` 7d's run scores Emuru released as a third condition against the same reference · 13 tests |
+| T40 | Train the task the system performs | **code done, not run; Amri's call** | `--objective imitate`: two lines by the same writer, one in front and one to write, loss on the second only (`context="same"`) · the only objective never trained -- 7d, 7f and 7o all taught 'reconstruct this line' · 4 tests, CPU smoke on the real checkpoint · cells 7p and 7q |
 | T39 | Teach Emuru real handwriting once, for everyone | **done, negative** | T4: 2,000 steps on 4,000 training-split lines in 12.5 min, training loss 0.42 -> 0.36 · identity 47.0% [42.0, 51.7] against 64.6% for the same 150 requests untrained · FID 56 -> 89, CER gap +1.8 -> +3.3 · better at reconstructing CVL lines, worse at imitating an unseen hand · build: `scripts/adapt_emuru.py`: one LoRA adapter on 4,000 lines by the 216 training-split writers, 2,000 steps at 1e-4 · `nib.models.adapters` saves 19 MB and reloads 576 tensors onto a fresh model · `--adapter` on both scripts, run directories marked · 5 tests |
 | T38 | Choose the style line by its letters | **done, no effect** | T4, 150 lines: identity 61.8% against 64.6%, paired by writer -2.8 [-7.4, +1.7] · four style lines a request leave little to choose between · build: among style lines of a workable width, the one showing most of the target's characters comes first · no training · default unchanged · 4 tests |
 | T36 | DiffBrush behind the Generator interface | **done; DiffBrush closed -- 40.6% against Emuru's 53.7% on the same writers** | `nib.models.diffbrush.DiffBrushGenerator`: loads in 13 s, 38 s a line on CPU, `check_output` passes, `$` refused by name · `--generator diffbrush` in `evaluate_generator.py` and `probe_writer.py`, Emuru the default and unchanged · `paths.third_party` · 11 tests, 468 passed · stage 1 scratch: checkpoint loads exactly, 163M params, charset covers all of CVL and the passages |

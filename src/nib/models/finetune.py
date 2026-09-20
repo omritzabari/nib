@@ -78,7 +78,20 @@ that decide what each position attends to, in the text and in the line so far.""
 
 LORA_MARKER = "lora_"
 
-CONTEXTS = ("own", "other")
+CONTEXTS = ("own", "other", "same")
+
+
+def pick_prefix(rng: random.Random, index: int, groups: Sequence[str]) -> int:
+    """Another line by the same writer as ``groups[index]``, never that line itself.
+
+    The prefix in ``context="same"``. 7f put *another* writer's line there to force
+    the hand into the weights and cost 17.9 identity points; this puts the writer's
+    own other line there, which is what the system is handed at generation time.
+    """
+    kin = [i for i, group in enumerate(groups) if group == groups[index] and i != index]
+    if not kin:
+        raise ValueError(f"writer {groups[index]!r} has fewer than two lines; pairing needs two")
+    return rng.choice(kin)
 
 
 @dataclass(frozen=True)
@@ -306,6 +319,7 @@ def train_writer(
     config: FinetuneConfig = DEFAULT_CONFIG,
     device: str = "cpu",
     others: Sequence[tuple[np.ndarray, str]] | None = None,
+    groups: Sequence[str] | None = None,
 ) -> TrainReport:
     """Fine-tune the attached adapter on one writer's lines and their texts.
 
@@ -320,6 +334,13 @@ def train_writer(
         raise ValueError(f"{len(images)} lines for {len(texts)} texts")
     if config.context == "other" and not others:
         raise ValueError("context 'other' needs lines by other writers")
+    if groups is not None and len(groups) != len(images):
+        raise ValueError(f"{len(groups)} writers for {len(images)} lines")
+    if config.context == "same":
+        writers = groups if groups is not None else ["one"] * len(images)
+        thin = sorted({w for w in writers if writers.count(w) < 2})
+        if thin:
+            raise ValueError(f"context 'same' needs two lines per writer; {thin[:3]} have one")
     parameters = [p for p in model.parameters() if p.requires_grad]
     if not parameters:
         raise RuntimeError("nothing to train: call attach_lora first")
@@ -347,11 +368,16 @@ def train_writer(
             starts = None
         else:
             canvases, batch_texts, starts = [], [], []
+            writers = groups if groups is not None else ["one"] * len(images)
             for i in picked:
-                other_image, other_text = others[rng.randrange(len(others))]
-                canvas, start = prepare_pair(other_image, images[i])
+                if config.context == "same":
+                    j = pick_prefix(rng, i, writers)
+                    before_image, before_text = images[j], texts[j]
+                else:
+                    before_image, before_text = others[rng.randrange(len(others))]
+                canvas, start = prepare_pair(before_image, images[i])
                 canvases.append(canvas)
-                batch_texts.append(f"{other_text} {texts[i]}")
+                batch_texts.append(f"{before_text} {texts[i]}")
                 starts.append(start)
 
         batch = torch.from_numpy(pad_batch(canvases)).to(device)
