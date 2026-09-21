@@ -757,6 +757,11 @@ def _measure(
     missing = _missing_words(recogniser, generated[:subset], real[:subset], truths[:subset])
     results |= missing.pop("fields")
 
+    print("\n" + "=" * 62)
+    print("DETECTABILITY -- can a trivial classifier tell it from real handwriting")
+    detectable = _detectability(real, generated)
+    results |= detectable.pop("fields")
+
     hwd_arrays = {}
     if hwd_result is not None:
         hwd_arrays = {
@@ -811,9 +816,41 @@ def _measure(
             f"  missing a word {missing['generated'].format(as_percent=True):>28}   "
             f"vs {missing['real'].value:.1%} for real"
         )
+    if detectable:
+        print(
+            f"  detectable     {detectable['accuracy'].format(as_percent=True):>28}   "
+            "50% = cannot be told from real"
+        )
     print(f"  CER gap        {(scored_cer.gap or 0):+8.1%}   generated minus real")
     print("\n  Two results whose intervals overlap cannot be told apart.")
     return results
+
+
+def _detectability(real, generated) -> dict:
+    """How well ten statistics of the ink tell the generated lines from the real
+    targets -- see :mod:`nib.engine.metrics.detectability`. 50% is the goal.
+
+    The real side is the target lines, which the generator never sees, so a
+    calibration fitted on the style lines cannot pass this by construction.
+    Wrapped like the other late metrics: a failure is reported, not fatal.
+    """
+    from nib.engine.metrics import detectability
+
+    try:
+        result = detectability.measure(real, generated)
+    except Exception:
+        traceback.print_exc()
+        print("  FAILED -- the traceback is above. The other metrics carry on.")
+        return {"fields": {"detectability_error": traceback.format_exc()}}
+    print("  " + result.describe().replace("\n", "\n  "))
+    return {
+        "accuracy": result.accuracy,
+        "fields": {
+            "detectability": result.accuracy.value,
+            "detectability_ci": [result.accuracy.low, result.accuracy.high],
+            "detectability_alone": result.alone,
+        },
+    }
 
 
 def _missing_words(recogniser, generated, real, truths) -> dict:

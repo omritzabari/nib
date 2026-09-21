@@ -6,6 +6,85 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
+> ### T42 step 2: the output fitted to each writer's page — 2026-09-21
+>
+> `nib.inference.calibrate`: `measure_hand(style_images, style_texts)` measures a
+> writer's ink height, margins, width per character (relative to ink height) and
+> the quantiles of their ink's darkness — **from the style lines only**;
+> `calibrate(image, text, hand)` fits a generated line to it in three switchable
+> steps: **size** (crop to the ink, scale to the hand's ink height), **width**
+> (squeeze across to the hand's cost per character, within 0.8–1.25 of uniform),
+> **tone** (quantile-map the ink's darkness onto the hand's; paper stays paper).
+> Adaptation to each user at the output stage, from what they upload. 8 tests.
+>
+> Measured on 7e's 150 kept lines, requests rebuilt exactly, each fitted to its
+> own 4 style lines and judged against the target lines it never saw:
+>
+> | | detectable |
+> |---|---|
+> | as written | 99.3% [98.3, 100] |
+> | size | 93.3% |
+> | tone | 91.6% |
+> | **size + width + tone** | **74.9% [69.9, 79.9]** |
+>
+> Spread of darkness, ink height and darkness fall to chance (43%, 42%, 43%).
+> **What still gives it away is broken strokes** — pieces per 100 columns 64.5%,
+> empty columns 66.6% — the model's own defect, untouched here. FID, an
+> independent network, also improved: 54.1 → **47.6 [44.1, 51.2]**. Writer
+> retrieval fell 32% → 27%, but that is the metric known to measure sharpness,
+> and upscaling softens — **HWD identity is the check that matters, and can only
+> run on Colab** (the `hwd` package does not install here).
+>
+> The model writes ~14% wider per character than the writer (median); width
+> squeezes a median 0.87, 62 of 149 lines at the 0.8 limit; afterwards the written
+> span is 1.06 of the real target's, against 0.93 before. The judge has no width
+> statistic, so width is not credited above.
+>
+> **Readability is not harmed:** CER by TrOCR-base over all 150 lines, 11.96% as
+> written (7e's own figure, reproduced exactly) against **12.19% calibrated**.
+>
+> **Size on CVL is noisy by construction.** Each pack line is scaled so its own ink
+> fills 64 px, so one writer's lines appear at different scales depending on their
+> ascenders. Matching the body of the writing instead of the whole ink box scored
+> worse (80.3%) and was not taken. On a real page every line shares one scale, so
+> the page engine should match size in page units.
+>
+> `scripts/rescore_run.py <run> [--calibrate] --tag T` rebuilds a finished run's
+> requests, optionally calibrates its saved lines, and scores them with every
+> metric — no generation. Verified end to end on 7e locally (HWD skipped there).
+> **Cell 7u** runs it on 7s, as a control and calibrated, after 7s in the same
+> session.
+>
+> ### T42 step 1: the judge — can a trivial classifier tell it from real? — 2026-09-21
+>
+> `nib.engine.metrics.detectability`: a classifier two-sample test. Ten plain
+> statistics of the ink per line (at height 64), an L2 logistic regression in numpy
+> (no optional dependency, so it runs in the test suite), stratified 10-fold, the
+> accuracy with a bootstrap interval, and each statistic's accuracy alone so every
+> figure names a defect. **50% is the goal.** Printed by `evaluate_generator.py` as
+> `DETECTABILITY` and in the summary; `scripts/detectability.py <run> [<run>]`
+> judges a saved run in a second. 8 tests; 527 pass.
+>
+> On 7e's full 150 lines: **99.3% [98.3, 100]** — every line gives itself away.
+>
+> | statistic | alone | real | generated |
+> |---|---|---|---|
+> | spread of ink darkness | 93.3% | 47.9 | 37.6 |
+> | ink height, share of the line | 90.6% | 0.97 | 0.78 |
+> | mean ink darkness | 73.9% | 190 | 176 |
+> | pieces of ink per 100 columns | 67.6% | 3.6 | 6.6 |
+> | empty columns in the span | 67.2% | 0.24 | 0.31 |
+> | baseline wobble | 64.9% | 7.4 | 6.3 |
+>
+> **Read with care.** Ink height is mostly *framing*: pack lines are cropped to
+> their ink, Emuru writes inside a band with margins, so matching size will fix it
+> almost by construction — needed for the page, not a better hand. Tone is partly
+> the preprocessing parity of review §1.4. The hard, model-side defects are
+> fragmentation (pieces, empty columns) and evenness (baseline wobble). Report
+> gains on those separately. The real side is the target lines, which the
+> generator never sees, so a calibration fitted on the style lines cannot pass by
+> construction.
+>
 > ### The goal, restated by Amri — and the plan it gives — 2026-09-21
 >
 > **nib is an app for anyone: any person, any handwriting — cursive, print, messy —
