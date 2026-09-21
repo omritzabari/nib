@@ -159,12 +159,16 @@ def main(argv: list[str] | None = None) -> int:
     hand = None
     if args.keep == "hand":
         hand, _ = _embedder(cfg, args.device)
+    selector = TrOcrRecogniser(model_name=args.selector, device=args.device, max_new_tokens=64)
     generator = CandidateGenerator(
         load_generator(args.generator, args.device, height, cfg=cfg, adapter=args.adapter),
-        TrOcrRecogniser(model_name=args.selector, device=args.device, max_new_tokens=64),
+        selector,
         candidates=args.candidates,
         hand=hand,
         style_by=args.style_by,
+        # The page is what the product writes, so it gets every check: here
+        # "warm at noon" came back without "at", and nothing caught it.
+        verifier=selector,
     )
     style_images = [lines[n - 1] for n in page]
     style_texts = [texts[n - 1] for n in page]

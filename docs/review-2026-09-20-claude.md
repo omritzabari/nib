@@ -182,6 +182,13 @@ almost never show a deletion run of 3 or more.
 > reader asked *whether this text is in the image* — the recogniser scoring the
 > target text teacher-forced — not *what text is in the image*. The failure stands;
 > the fix proposed here does not.
+>
+> **Update, same day: built, and the failure is larger than this section says.**
+> `TrOcrRecogniser.omissions()` does exactly that. On 7e's 150 kept lines it finds
+> a word missing in 31 (20.7%) — all ten inspected by eye are real, and 13 of the
+> 31 are the first word of the line — while flagging 1 of 120 complete real CVL
+> lines. It finds "at" and "#378" on Amri's page and nothing on his complete
+> lines. See `candidates.OMISSION_SUPPORT` and PROGRESS.md, T41.
 
 ---
 

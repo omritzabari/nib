@@ -74,6 +74,19 @@ withheld from the score rather than counted as misses. A query whose writer is
 absent from the gallery cannot match, so scoring it would measure how the samples
 were drawn rather than how well the model copies a hand."""
 
+OMISSION_JUDGE_SUPPORT = 10.0
+"""Support above which the CER judge calls a word of a line missing.
+
+The same threshold the selector refuses draws at, applied by a different reader:
+TrOCR-base, which scores CER and chooses nothing. Measured before use. On 120
+complete real CVL lines it calls 4 (3.3%) missing a word -- its own false alarms,
+reported beside every figure as its own CER is. On cell 7e's 150 kept lines it
+calls 31 (20.7%), and agrees with the selector on 29 of the selector's 31. Two
+readers finding the same lines, far above the rate either finds on real
+handwriting, is what makes the one-line-in-five figure a finding rather than a
+reader's habit.
+"""
+
 PHASE1_WORD_REFERENCE = {
     "fid_floor": 33.72,
     "cer_real": 0.1233,
@@ -313,12 +326,11 @@ def main(argv: list[str] | None = None) -> int:
         "(default: nib.models.candidates.ACCEPT_CER).",
     )
     parser.add_argument(
-        "--accept-underrun",
-        type=int,
-        default=None,
-        help="longest run of the text a kept draw may leave out. Off by default: "
-        "the selector drops short words from complete lines on its own, so it cannot "
-        "tell what the generator left out. See nib.models.candidates.ACCEPT_UNDERRUN.",
+        "--no-omission-check",
+        action="store_true",
+        help="do not ask the selector whether each word of the text is in a draw. "
+        "On by default: Emuru left a word out of one line in five that 7e kept. "
+        "See nib.models.candidates.OMISSION_SUPPORT.",
     )
     parser.add_argument(
         "--width-band",
@@ -473,11 +485,7 @@ def main(argv: list[str] | None = None) -> int:
             selector,
             candidates=args.candidates,
             accept_cer=(candidates_mod.ACCEPT_CER if args.accept_cer is None else args.accept_cer),
-            accept_underrun=(
-                candidates_mod.ACCEPT_UNDERRUN
-                if args.accept_underrun is None
-                else args.accept_underrun
-            ),
+            verifier=None if args.no_omission_check else selector,
             width_band=(
                 candidates_mod.WIDTH_BAND if args.width_band is None else tuple(args.width_band)
             ),
@@ -572,6 +580,7 @@ def main(argv: list[str] | None = None) -> int:
         truths=truths,
         generated=generated,
         readings=getattr(selection, "chosen_readings", None),
+        omissions=getattr(selection, "chosen_omissions", None),
     )
 
     results = _measure(
@@ -745,6 +754,9 @@ def _measure(
     print("  on lines). Both numbers above share that handicap, so the *gap* is the")
     print("  meaningful figure, not either value on its own.")
 
+    missing = _missing_words(recogniser, generated[:subset], real[:subset], truths[:subset])
+    results |= missing.pop("fields")
+
     hwd_arrays = {}
     if hwd_result is not None:
         hwd_arrays = {
@@ -769,6 +781,7 @@ def _measure(
         cer_errors=scored_cer.errors,
         cer_lengths=scored_cer.lengths,
         cer_real_errors=scored_cer.real_errors,
+        **missing.pop("arrays"),
         **hwd_arrays,
     )
 
@@ -793,9 +806,68 @@ def _measure(
             f"  HWD identity   {hwd_result.identity_interval().format(as_percent=True):>28}   "
             "of what real lines carry"
         )
+    if missing:
+        print(
+            f"  missing a word {missing['generated'].format(as_percent=True):>28}   "
+            f"vs {missing['real'].value:.1%} for real"
+        )
     print(f"  CER gap        {(scored_cer.gap or 0):+8.1%}   generated minus real")
     print("\n  Two results whose intervals overlap cannot be told apart.")
     return results
+
+
+def _missing_words(recogniser, generated, real, truths) -> dict:
+    """The share of lines missing a word, generated against real, by the CER judge.
+
+    The number the product turns on: a page with a word gone is rejected before its
+    handwriting is looked at, and CER hides it -- one short word costs about what
+    the reader's own noise does. Judged by the reader that scores CER, TrOCR-base,
+    never by the selector, which chose the draws by this very question. The real
+    lines are scored the same way, so the judge's own false alarms stand beside the
+    figure as its own error rate stands beside CER.
+
+    New code at the end of a run that has already cost two hours of GPU, so a
+    failure is reported and the other metrics carry on. Returns the two intervals,
+    the fields for results.json and the per-line supports for analysis.npz; after a
+    failure, only the last two, empty of intervals.
+    """
+    print()
+    print("  lines missing a word -- the CER judge asked whether each word is there")
+    try:
+        texts = [t.text for t in truths]
+        scores = {
+            name: np.array(
+                [-np.inf if o is None else o.support for o in recogniser.omissions(images, texts)]
+            )
+            for name, images in (("generated", generated), ("real", real))
+        }
+    except Exception:
+        traceback.print_exc()
+        print("  FAILED -- the traceback is above. The other metrics carry on.")
+        return {"fields": {"missing_word_error": traceback.format_exc()}, "arrays": {}}
+
+    intervals = {
+        name: bootstrap.rate_interval(values > OMISSION_JUDGE_SUPPORT)
+        for name, values in scores.items()
+    }
+    print(f"  generated  {intervals['generated'].format(as_percent=True)}")
+    print(
+        f"  real       {intervals['real'].format(as_percent=True)}"
+        "   <- the judge's own false alarms"
+    )
+    return {
+        **intervals,
+        "fields": {
+            "missing_word_generated": intervals["generated"].value,
+            "missing_word_generated_ci": [intervals["generated"].low, intervals["generated"].high],
+            "missing_word_real": intervals["real"].value,
+            "missing_word_threshold": OMISSION_JUDGE_SUPPORT,
+        },
+        "arrays": {
+            "omission_generated": scores["generated"],
+            "omission_real": scores["real"],
+        },
+    }
 
 
 def _save_analysis(out_dir, **arrays) -> None:
@@ -812,7 +884,7 @@ def _save_analysis(out_dir, **arrays) -> None:
     print(f"\nanalysis          {out_dir / 'analysis.npz'}  (re-examine without a GPU)")
 
 
-def _save_generated(out_dir, *, truths, generated, readings=None) -> None:
+def _save_generated(out_dir, *, truths, generated, readings=None, omissions=None) -> None:
     """What each sample *was*, and the image the model made for it.
 
     ``per_sample.json`` holds each sample's key, writer, text and the width it
@@ -829,13 +901,14 @@ def _save_generated(out_dir, *, truths, generated, readings=None) -> None:
     for index, image in enumerate(generated):
         cv2.imwrite(str(images / f"{index:03d}.png"), image)
 
-    # The selector's reading of the kept draw, where there was a selector. It is
-    # what ACCEPT_UNDERRUN has to be calibrated against, and no run before this
-    # one stored it -- which is why that threshold cannot be settled from any
-    # output already on disk.
-    read = (
-        list(readings) if readings and len(readings) == len(generated) else [None] * len(generated)
-    )
+    # What the selector read of the kept draw, and the word it most clearly lacks,
+    # where there was a selector. No run before 2026-09-21 stored either, so a line
+    # kept with a word missing could not be found afterwards.
+    def aligned(values):
+        if values and len(values) == len(generated):
+            return list(values)
+        return [None] * len(generated)
+
     records = [
         {
             "key": truth.key,
@@ -844,8 +917,12 @@ def _save_generated(out_dir, *, truths, generated, readings=None) -> None:
             "real_width": int(truth.image.shape[1]),
             "generated_width": int(image.shape[1]),
             "reading": reading,
+            "omitted": None if omission is None else omission.word,
+            "omission_support": None if omission is None else round(omission.support, 2),
         }
-        for truth, image, reading in zip(truths, generated, read, strict=True)
+        for truth, image, reading, omission in zip(
+            truths, generated, aligned(readings), aligned(omissions), strict=True
+        )
     ]
     (out_dir / "per_sample.json").write_text(
         json.dumps(records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

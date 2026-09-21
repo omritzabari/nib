@@ -24,6 +24,7 @@ from nib.engine.metrics.fid import (
     frechet_distance,
     gaussian_statistics,
 )
+from nib.engine.metrics.recogniser import without_each_word
 from nib.engine.metrics.writer import RetrievalError, WriterRetrieval
 
 # ---------------------------------------------------------------------------
@@ -432,3 +433,37 @@ def test_references_without_a_record_count_are_not_called_stale(tmp_path):
     ref.save(tmp_path, "p.lmdb", {"fid_floor": 19.0})
 
     assert not ref.stale(ref.load(tmp_path, "p.lmdb"), 9142)
+
+
+# ---------------------------------------------------------------------------
+# Asking whether a text is in an image
+#
+# The reader scores the whole text against the text with each word left out.
+# Which variants it scores is the part that can be tested without the model.
+# ---------------------------------------------------------------------------
+
+
+def test_each_word_is_left_out_in_turn():
+    assert without_each_word("warm at noon today") == [
+        (0, "at noon today"),
+        (1, "warm noon today"),
+        (2, "warm at today"),
+    ]
+
+
+def test_the_last_word_is_never_tested():
+    """The reader is weakest at a line's right edge: on complete real lines the
+    strongest false signal fell on the last word in half of them."""
+    variants = without_each_word("a b c")
+    assert [index for index, _ in variants] == [0, 1]
+
+
+def test_a_single_word_has_nothing_to_test():
+    assert without_each_word("hello") == []
+    assert without_each_word("") == []
+
+
+def test_punctuation_stays_with_its_word():
+    """Leaving "#378" out of "Order #378 at" must take the mark with it: the
+    failure on Amri's page lost exactly that."""
+    assert (1, "Order at cafe") in without_each_word("Order #378 at cafe")

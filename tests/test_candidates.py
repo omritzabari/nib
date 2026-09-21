@@ -10,7 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nib.models.candidates import CandidateGenerator, overrun, style_order, underrun
+from nib.engine.metrics.recogniser import Omission
+from nib.models.candidates import CandidateGenerator, overrun, style_order
 from nib.models.emuru import Truncation, TruncationLog
 from nib.models.generator import EmptyGeneration, GenerationRequest, GeneratorError
 
@@ -299,59 +300,6 @@ def test_a_misread_letter_inside_the_line_is_not_writing_beyond_it():
     assert overrun("hellu world", "hello world") == 0
 
 
-# ---------------------------------------------------------------------------
-# Writing *less* than the text. The mirror of the block above, and the failure
-# that had nothing watching it: on Amri's page "warm at noon" came out "walm
-# noon" and "Order #378 at Lior's Cafe" came out "Order 3 t Lior's Cafe". Each
-# reads well under the CER threshold with an overrun of zero.
-# ---------------------------------------------------------------------------
-
-
-def test_a_dropped_word_is_counted():
-    assert underrun("warm noon", "warm at noon") == 2
-
-
-def test_the_longest_run_is_what_counts_not_the_total():
-    """Three separate misses of one character are a reader's noise; one run of
-    three is a word gone. The sum cannot tell them apart and CER already has it."""
-    assert underrun("ello worl tday", "hello world today") == 1
-
-
-def test_a_run_inside_the_line_is_found():
-    assert underrun("Order 3 t Lior", "Order #378 at Lior") == 3
-
-
-def test_a_missing_beginning_is_counted():
-    """Spaces are removed first, so the run is the five letters, not six."""
-    assert underrun("world", "hello world") == 5
-
-
-def test_a_missing_end_is_counted():
-    assert underrun("hello", "hello world") == 5
-
-
-def test_a_misread_letter_is_not_a_missing_one():
-    """The alignment that substitutes is preferred to the one that deletes, so
-    ambiguity is charged to CER rather than counted here."""
-    assert underrun("hellu world", "hello world") == 0
-
-
-def test_writing_beyond_the_text_is_not_writing_less_of_it():
-    assert underrun("hello world te Te", "hello world") == 0
-
-
-def test_the_space_a_reader_drops_costs_nothing():
-    assert underrun("helloworld", "hello world") == 0
-
-
-def test_a_perfect_reading_has_none():
-    assert underrun("hello world", "hello world") == 0
-
-
-def test_an_empty_reading_is_the_whole_text():
-    assert underrun("", "hello world") == 10
-
-
 def test_a_draw_that_keeps_writing_after_the_text_is_redrawn():
     # 35% CER: readable by that measure alone.
     base = ScriptedGenerator(["hello world again te Te", "hello world again"])
@@ -389,51 +337,91 @@ def test_when_every_draw_writes_beyond_the_text_the_best_read_is_kept_and_counte
 
 
 # ---------------------------------------------------------------------------
-# Writing less than the text, wired -- and off by default
+# A word left out
 #
-# The failure is real: on Amri's page the generator wrote "warm noon" for "warm
-# at noon". But TrOCR-small, the reader, drops short words from complete lines on
-# its own, so by default a draw is not judged on what the reader left out. The
-# check stays available for a reader that can be trusted with it.
+# Emuru left a word out of one line in five that this module used to keep, and
+# nothing noticed: such a draw reads well, writes nothing extra, and is the right
+# width. A verifier asks whether each word of the text is in the image; the
+# scripted one here answers by draw number.
 # ---------------------------------------------------------------------------
 
 
-def test_by_default_a_draw_is_not_rejected_for_what_the_reader_left_out():
-    """Read end to end on the fake generator, whose lines are complete by
-    construction, TrOCR-small read "not the rapid calculation" as "not rapid
-    calculation". A default that rejected that would reject sound draws."""
-    base = ScriptedGenerator(["not rapid calculation", "never used"])
-    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+class ScriptedVerifier:
+    """Says how strongly each draw, by number, lacks a word -- as the reader would."""
 
-    wrapper.generate([_request(text="not the rapid calculation")])
+    def __init__(self, supports):
+        self.supports = supports
 
-    assert len(base.calls) == 1
-    assert wrapper.selection.rejected_for_underrun == 0
+    def omissions(self, images, texts):
+        out = []
+        for image in images:
+            support = self.supports.get(int(image[30, 10]))
+            out.append(None if support is None else Omission("at", 1, support))
+        return out
 
 
-def test_turned_on_a_draw_that_leaves_a_word_out_is_redrawn():
-    # "hello world again" without "world": reads at 35%, well under the CER
-    # threshold, with no overrun.
-    base = ScriptedGenerator(["hello again", "hello world again"])
-    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4, accept_underrun=1)
+def test_a_draw_that_left_a_word_out_is_redrawn():
+    # Draw 1 is "warm at noon" written without "at": +26.2 on Amri's page.
+    base = ScriptedGenerator(["hello world", "hello world"])
+    verifier = ScriptedVerifier({1: 26.2, 2: -16.0})
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4, verifier=verifier)
 
-    (image,) = wrapper.generate([_request(text="hello world again")])
+    (image,) = wrapper.generate([_request()])
 
     assert len(base.calls) == 2
     assert int(image[30, 10]) == 2
-    assert wrapper.selection.rejected_for_underrun == 1
-    assert "1 read well but left part of the text out" in wrapper.selection.summary()
+    assert wrapper.selection.rejected_for_omission == 1
+    assert "1 read well but left a word out" in wrapper.selection.summary()
 
 
-def test_turned_on_one_dropped_letter_is_tolerated():
-    """Readers drop a letter from real lines too; CER counts that already."""
-    base = ScriptedGenerator(["hello wold", "never used"])
-    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4, accept_underrun=1)
+def test_a_word_that_is_there_is_not_called_missing():
+    """Every complete line on Amri's page, his or generated, scored -6.1 or below."""
+    base = ScriptedGenerator(["hello world", "never used"])
+    wrapper = CandidateGenerator(
+        base, ScriptedReader(), candidates=4, verifier=ScriptedVerifier({1: -6.1})
+    )
 
     wrapper.generate([_request()])
 
     assert len(base.calls) == 1
-    assert wrapper.selection.rejected_for_underrun == 0
+    assert wrapper.selection.rejected_for_omission == 0
+
+
+def test_without_a_verifier_no_word_is_judged_missing():
+    base = ScriptedGenerator(["hello world", "never used"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    wrapper.generate([_request()])
+
+    assert len(base.calls) == 1
+    assert wrapper.selection.chosen_omissions == [None]
+
+
+def test_when_nothing_passes_a_draw_with_every_word_beats_one_missing_a_word():
+    """Ordering on CER alone got this backwards: a missing short word costs fewer
+    characters than the extra ones a draw that kept going wrote after the text."""
+    # Draw 1 left "world" out: CER 35%. Draw 2 has every word and five junk
+    # characters after them: CER 47%, overrun 5. Neither is acceptable.
+    base = ScriptedGenerator(["hello again", "hello world again te Te x"])
+    verifier = ScriptedVerifier({1: 20.0, 2: -10.0})
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, verifier=verifier)
+
+    (image,) = wrapper.generate([_request(text="hello world again")])
+
+    assert int(image[30, 10]) == 2
+    assert wrapper.selection.none_accepted == 1
+
+
+def test_the_omission_of_every_kept_draw_is_recorded():
+    base = ScriptedGenerator(["hello world"])
+    wrapper = CandidateGenerator(
+        base, ScriptedReader(), candidates=4, verifier=ScriptedVerifier({1: -8.5})
+    )
+
+    wrapper.generate([_request()])
+
+    (kept,) = wrapper.selection.chosen_omissions
+    assert kept.support == -8.5
 
 
 # ---------------------------------------------------------------------------

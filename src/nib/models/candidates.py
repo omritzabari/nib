@@ -14,7 +14,9 @@ This module draws again. For each line to write:
    text itself (CER 30.4% -> 59.6%), so a page is used by selection, never by
    concatenation;
 3. read the draw with a recogniser and score it against the intended text --
-   its CER, and how much it wrote beyond that text;
+   its CER, and how much it wrote beyond that text; check its width against
+   what this hand needs for the text; and, given a verifier, ask whether any
+   word of the text is missing from it;
 4. keep a draw, by one of two rules.
 
 **Readable (T28).** Stop at the first draw readable enough, otherwise keep the
@@ -42,10 +44,12 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Protocol
 
 import numpy as np
 
 from nib.engine.metrics.cer import Recogniser, cer
+from nib.engine.metrics.recogniser import Omission
 from nib.engine.metrics.writer import Embedder
 from nib.models.emuru import EmptyOutputLog, TruncationLog
 from nib.models.generator import (
@@ -55,6 +59,20 @@ from nib.models.generator import (
     GeneratorError,
     to_uint8,
 )
+
+
+class Verifier(Protocol):
+    """Anything that can say which word of a text an image most clearly lacks.
+
+    Separate from :class:`Recogniser` because it answers a different question --
+    whether this text is in the image, rather than what text is -- and a reader
+    that answers the second well can answer the first badly.
+    """
+
+    def omissions(
+        self, images: Sequence[np.ndarray], texts: Sequence[str]
+    ) -> list[Omission | None]: ...
+
 
 DEFAULT_CANDIDATES = 4
 
@@ -66,31 +84,31 @@ line read at 9.3% and the failures above 90%. The selector is TrOCR-small, whose
 own rate on real lines has not been measured here, so the threshold is loose on
 purpose -- a tight one would spend draws re-rolling lines that were fine."""
 
-ACCEPT_UNDERRUN: int | None = None
-"""The longest run of its text a readable draw may leave out -- see
-:func:`underrun` -- or None for not judged. **Off by default, because the reader
-cannot be trusted with this question.**
+OMISSION_SUPPORT = 10.0
+"""How much better a draw must read *without* one of its words before that word
+counts as left out -- see ``TrOcrRecogniser.omissions``. A log-likelihood ratio.
 
-The check was built for a real failure: on Amri's page the generator wrote "warm
-noon" for "warm at noon", visibly, in the pixels. It was set to 1 on readings of
-that page -- but those readings were taken by eye, a reader that misses nothing.
-The pipeline's reader is TrOCR-small, and run end to end on the fake generator,
-which draws every character of its text in a clean typeface, it left words out on
-its own: "not the rapid calculation" read "not rapid calculation", "Whirlwind or
-Typhoon" read "whirlwind typhoon", "it will be enough" read "it will". Over twelve
-complete lines its runs reached 3 routinely and 8 once, and at 1 it set aside 16
-of 24 draws that were entirely correct.
+**Emuru leaves a word out of one line in five that this module used to keep.** On
+cell 7e's 150 kept lines, 31 (20.7%) score above this, and every one of the ten
+looked at by eye is missing text: "differ much more from each other" written as
+"much more from each other", "about on or in the surface" as "about or in the
+surface", "a few years ago I should" as "few years ago . should". In 13 of the 31
+the missing word is the *first* -- the seam where the style line ends and the new
+text begins. CER did not show it: one short word lost costs about what the
+reader's own noise does, so 7e read at 12.0% against 10.8% for real lines.
 
-A reader that drops short words cannot tell a word the generator left out from
-one it skipped itself, and the size of the failure being hunted -- one short word
--- is exactly the size of its noise. Turned on at a threshold its noise does not
-reach, the check would catch nothing that matters; turned on at 1, it rejects
-sound draws, and in ``hand`` mode a request with nothing readable skips the choice
-by hand altogether.
+**The first attempt read the draw and compared.** A free-running reader has a
+language model's habits and skips short words from complete lines by itself --
+on the fake generator, whose lines are whole by construction, it would have set
+aside 16 of 24 correct draws. This asks the reader whether the text is in the
+image instead, which it can answer.
 
-Kept, with ``SelectionLog.chosen_readings``, for a reader that can answer it: one
-asked *whether this text is in the image* rather than *what text is in the image*,
-which a free-running decoder with a language model's habits is not.
+Measured at this threshold: 1 of 120 complete real CVL lines flagged (0.8%);
+of 69 typeface lines drawn with one short inner word left out, 62 caught (90%),
+with the removed word the one named in 86%. On Amri's page, "warm at noon"
+written without "at" scores +26.2 on "at", "Order #378 at" written without
+"#378" scores +18.2 on "#378", and every complete line, his or generated, scores
+-6.1 or below. Anywhere from 6 to 12 flags the same 7e lines within 2 points.
 """
 
 WIDTH_BAND = (0.70, 1.40)
@@ -220,77 +238,6 @@ def overrun(reading: str, target: str) -> int:
     return max(before, len(read) - end)
 
 
-def underrun(reading: str, target: str) -> int:
-    """The longest run of consecutive target characters the reading does not carry.
-
-    The mirror of :func:`overrun`, and the check this pipeline never had. A draw
-    can leave a word out, read well under ``ACCEPT_CER``, and carry nothing
-    beyond its text -- so every rule in this module passed it. On Amri's page
-    "warm at noon" came back "walm noon", "Order #378 at Lior's Cafe" came back
-    "Order 3 t Lior's Cafe", and "If You find it, Please" came back "I You find
-    .. please". A reader rejects a page with words missing before forming any
-    opinion of the handwriting.
-
-    **A run, not a total.** Single characters missed here and there are the
-    reader's own noise, and CER counts them already; three in a row are a word
-    that was not written. This is the same distinction :func:`overrun` draws on
-    the other side, where the two ends are taken by ``max`` rather than summed.
-
-    Spaces are removed from both sides first, as there, so a reader's spacing
-    costs nothing -- which also means a dropped two-letter word scores 2 and not
-    3, the space going with it.
-
-    **Ties, and why they break the other way here.** The alignment is the
-    cheapest one; among equally cheap ones the walk prefers the deletion. That
-    is the opposite of :func:`overrun`, which charges an ambiguous end to CER and
-    errs toward keeping the draw. Writing a little beyond the text is cosmetic,
-    so erring toward keeping is right there. A word left out is the failure that
-    makes a page unusable, so erring toward *catching* it is right here: a miss
-    ships a page with a word gone, while a false alarm costs one redraw -- and
-    none at all in ``hand`` mode, where every draw is made regardless.
-
-    A misread letter is still not counted, because substituting it is strictly
-    cheaper than deleting and inserting, and this rule only decides ties.
-    """
-    read = "".join(reading.split())
-    text = "".join(target.split())
-    if not text:
-        return 0
-
-    # cost[i][j]: the cheapest alignment of the first i characters of the text
-    # with the first j of the reading.
-    cost = [[0] * (len(read) + 1) for _ in range(len(text) + 1)]
-    for i in range(1, len(text) + 1):
-        cost[i][0] = i
-    for j in range(1, len(read) + 1):
-        cost[0][j] = j
-    for i in range(1, len(text) + 1):
-        previous, row = cost[i - 1], cost[i]
-        for j in range(1, len(read) + 1):
-            row[j] = min(
-                previous[j - 1] + (text[i - 1] != read[j - 1]),
-                row[j - 1] + 1,  # the reading carries a character the text does not
-                previous[j] + 1,  # the text carries one the reading does not
-            )
-
-    longest = run = 0
-    i, j = len(text), len(read)
-    while i > 0:
-        here = cost[i][j]
-        if cost[i - 1][j] + 1 == here:  # the text's character is not in the reading
-            i -= 1
-            run += 1
-            longest = max(longest, run)
-        elif j > 0 and cost[i - 1][j - 1] + (text[i - 1] != read[j - 1]) == here:
-            i, j, run = i - 1, j - 1, 0
-        else:
-            # A character of the reading that answers to nothing in the text does
-            # not interrupt a run: the text's characters either side of it are
-            # both still absent from the reading.
-            j -= 1
-    return longest
-
-
 def predicted_width(
     style_images: Sequence[np.ndarray], style_texts: Sequence[str] | None, target: str
 ) -> float | None:
@@ -335,8 +282,8 @@ class Draw:
     overrun: int = 0
     """Characters read beyond either end of the text."""
 
-    underrun: int = 0
-    """The longest run of the text's characters the reading does not carry."""
+    omission: Omission | None = None
+    """The word the draw most clearly lacks, when a verifier was given."""
 
     width_ratio: float | None = None
     """This draw's width as a share of what the style lines predict for the text,
@@ -367,8 +314,8 @@ class SelectionLog:
     rejected_for_overrun: int = 0
     """Draws that read well enough but wrote beyond the text, set aside for it."""
 
-    rejected_for_underrun: int = 0
-    """Draws that read well enough but left part of the text out. One draw can be
+    rejected_for_omission: int = 0
+    """Draws that read well enough but left a word of the text out. One draw can be
     counted here and under the two neighbouring fields at once: these name the
     faults found, not a partition of the draws."""
 
@@ -379,9 +326,12 @@ class SelectionLog:
     """The selector's CER for each kept image, in request order."""
 
     chosen_readings: list[str] = field(default_factory=list)
-    """What the selector read of each kept image, in request order. Stored because
-    ``ACCEPT_UNDERRUN`` cannot be calibrated without it, and no run before this
-    one kept it."""
+    """What the selector read of each kept image, in request order. No run before
+    2026-09-21 stored it, so no threshold on it could be checked afterwards."""
+
+    chosen_omissions: list[Omission | None] = field(default_factory=list)
+    """The word each kept image most clearly lacks, and by how much, where a
+    verifier was given -- so a kept line that still lost a word can be found."""
 
     @property
     def draws_per_request(self) -> float:
@@ -397,7 +347,7 @@ class SelectionLog:
             "none_accepted": self.none_accepted,
             "moved_by_hand": self.moved_by_hand,
             "rejected_for_overrun": self.rejected_for_overrun,
-            "rejected_for_underrun": self.rejected_for_underrun,
+            "rejected_for_omission": self.rejected_for_omission,
             "rejected_for_width": self.rejected_for_width,
         }
 
@@ -417,7 +367,7 @@ class SelectionLog:
             lines.append(f"  {self.first_draw_accepted} accepted on the first draw")
         lines += [
             f"  {self.rejected_for_overrun} read well but wrote beyond the text, set aside",
-            f"  {self.rejected_for_underrun} read well but left part of the text out, set aside",
+            f"  {self.rejected_for_omission} read well but left a word out, set aside",
             f"  {self.rejected_for_width} read well but was the wrong width for the text",
             f"  {self.none_accepted} kept as the best of an unreadable set",
             "  scored by selectors, not by the models that measure below",
@@ -442,7 +392,8 @@ class CandidateGenerator:
         width_range: tuple[int, int] = STYLE_WIDTH_RANGE,
         hand: Embedder | None = None,
         accept_overrun: int = ACCEPT_OVERRUN,
-        accept_underrun: int | None = ACCEPT_UNDERRUN,
+        verifier: Verifier | None = None,
+        omission_support: float = OMISSION_SUPPORT,
         width_band: tuple[float, float] = WIDTH_BAND,
         style_by: str = "width",
     ) -> None:
@@ -453,7 +404,8 @@ class CandidateGenerator:
         self.candidates = candidates
         self.accept_cer = accept_cer
         self.accept_overrun = accept_overrun
-        self.accept_underrun = accept_underrun
+        self.verifier = verifier
+        self.omission_support = omission_support
         self.width_band = width_band
         self.width_range = width_range
         self.style_by = style_by
@@ -502,8 +454,8 @@ class CandidateGenerator:
             if draw.score <= self.accept_cer:
                 if draw.overrun > self.accept_overrun:
                     self.selection.rejected_for_overrun += 1
-                if self._left_out(draw):
-                    self.selection.rejected_for_underrun += 1
+                if self._omitted(draw):
+                    self.selection.rejected_for_omission += 1
                 if not self._in_band(draw):
                     self.selection.rejected_for_width += 1
             if self.hand is None and self._readable(draw):
@@ -528,6 +480,7 @@ class CandidateGenerator:
             self.selection.none_accepted += 1
         self.selection.chosen_scores.append(best.score)
         self.selection.chosen_readings.append(best.reading)
+        self.selection.chosen_omissions.append(best.omission)
 
         self.truncations.generated += 1
         if best.truncated:
@@ -538,12 +491,12 @@ class CandidateGenerator:
         return (
             draw.score <= self.accept_cer
             and draw.overrun <= self.accept_overrun
-            and not self._left_out(draw)
+            and not self._omitted(draw)
             and self._in_band(draw)
         )
 
-    def _left_out(self, draw: Draw) -> bool:
-        return self.accept_underrun is not None and draw.underrun > self.accept_underrun
+    def _omitted(self, draw: Draw) -> bool:
+        return draw.omission is not None and draw.omission.support > self.omission_support
 
     def _in_band(self, draw: Draw) -> bool:
         """True when the width was not judged at all, so a generator that carries
@@ -556,7 +509,15 @@ class CandidateGenerator:
     def _choose(self, request: GenerationRequest, draws: list[Draw]) -> Draw:
         readable = [draw for draw in draws if self._readable(draw)]
         if not readable:
-            return min(draws, key=lambda draw: draw.score)
+            # Nothing is acceptable, so keep the least bad. Over the CER threshold
+            # a draw is a smear whatever else it has; below it, a draw that says
+            # the whole text beats one that left a word out -- which ordering on
+            # CER alone got backwards, since a missing short word costs fewer
+            # characters than misreading the line that carried it.
+            return min(
+                draws,
+                key=lambda draw: (draw.score > self.accept_cer, self._omitted(draw), draw.score),
+            )
         if self.hand is None:
             return readable[0]
 
@@ -570,7 +531,7 @@ class CandidateGenerator:
                 d.style_index,
                 d.truncated,
                 d.overrun,
-                d.underrun,
+                d.omission,
                 d.width_ratio,
                 d.reading,
                 float(s),
@@ -619,7 +580,7 @@ class CandidateGenerator:
             index,
             truncated,
             overrun(reading, request.text),
-            underrun(reading, request.text),
+            self.verifier.omissions([image], [request.text])[0] if self.verifier else None,
             None if not expected else float(image.shape[1]) / expected,
             reading,
         )

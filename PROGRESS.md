@@ -6,6 +6,103 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
+> ### 7r measured: the width check is neutral; one line in five confirmed — 2026-09-21
+>
+> | 150 requests, `hand` mode | 7e | 7r (+ width check) |
+> |---|---|---|
+> | CER, generated / real | 11.96% / 10.83% | 11.54% / 10.83% |
+> | identity | 69.8% [64.5, 75.2] | 66.5% [59.9, 72.6] |
+> | own writer nearest | 63.0% | 63.0% |
+> | FID | 54.1 | 54.8 |
+>
+> **Nothing moved beyond sampling noise** — two draws of the same configuration
+> differ this much, and every interval overlaps. It set aside 42 of 600 draws;
+> `none_accepted` 10, `moved_by_hand` 89. Kept as a guard against smears; it is not
+> the gain. **A 7e-style run takes ~113 minutes** (four draws a line), not the 35
+> the cells said; corrected in 7r and 7s.
+>
+> **The one-line-in-five omission rate is confirmed by an independent reader.**
+> TrOCR-base — the CER judge, which chooses nothing — asked the same question of
+> 7e's 150 kept lines calls **31 (20.7%)** missing a word and agrees with the
+> selector on 29 of the selector's 31; on 120 complete real CVL lines it calls
+> **4 (3.3%)**. On Amri's page it finds "at" (+14.4) and misses "#378" (+2.8): a
+> weaker detector than the selector there, and a fair judge.
+>
+> So `evaluate_generator.py` now reports **`missing a word`** beside CER, judged by
+> TrOCR-base at `OMISSION_JUDGE_SUPPORT = 10`, generated against real with
+> intervals, and saves the per-line supports to `analysis.npz`
+> (`omission_generated`, `omission_real`). Wrapped so a failure cannot take the
+> other metrics with it. **7s is the first run to print it**; 7e's figure (20.7%)
+> was scored locally from its saved images.
+>
+> ### T41, P0 step 3 of 3: a draw that left a word out is refused — 2026-09-21
+>
+> **Emuru leaves a word out of one line in five that the system keeps, and
+> nothing was catching it.** Scored on 7e's 150 kept lines, **31 (20.7%) lack a
+> word**, and all ten inspected by eye really do: "differ much more from each
+> other" written without "differ", "about on or in the surface" without "on", "a
+> few years ago I should" without "a" and "I". **In 13 of the 31 it is the first
+> word** — the seam where the style line ends and the new text starts; some start
+> mid-word ("rtune" for "And fortune", "heir" for "their"). CER hid all of it: one
+> short word costs about what the reader's own noise does, so 7e read at 12.0%
+> against 10.8% for real lines.
+>
+> **The check: ask whether this text is in the image, not what text is.**
+> `TrOcrRecogniser.omissions()` scores the whole text teacher-forced against the
+> text with each word left out in turn (`without_each_word`, every word but the
+> last). A word on the page is expensive to remove — everything after it loses
+> its alignment; a word that is not there pays to remove. One encoder pass per
+> draw and one batched decoder pass. It replaces `underrun`, which compared a free
+> reading and could not work, because TrOCR-small skips short words by itself.
+>
+> Measured at `OMISSION_SUPPORT = 10`:
+>
+> | | flagged |
+> |---|---|
+> | complete real CVL lines | **1 of 120 (0.8%)** |
+> | typeface lines with one short inner word cut out | **62 of 69 caught (90%)**, the right word named in 86% |
+> | Amri's page, "warm at noon" without "at" | **+26.2 on "at"** |
+> | Amri's page, "Order #378 at" without "#378" | **+18.2 on "#378"** |
+> | every complete line on his page, his or generated | −6.1 or below |
+> | 7e's kept lines | 31 of 150 — 10 of 10 inspected are real omissions |
+>
+> The last word is left out of the test because the reader is weakest at a line's
+> right edge: on complete real lines the strongest false signal fell on it in 51%
+> of cases, and excluding it cut false flags from 5.0% to 0.8%. A missing last
+> word is a cut-short line, which the width check watches. Anywhere from 6 to 12
+> flags 7e's lines within two points, so the threshold is not delicate. Line 16 of
+> the page ("it," written as "..") is not caught: that is content replaced, not
+> left out.
+>
+> Wired in `candidates` as a `Verifier` (on when one is given), with
+> `rejected_for_omission` in the log and `chosen_omissions` recorded; the fallback
+> now prefers, below the CER threshold, a draw that says every word to one that
+> does not. `evaluate_generator.py` passes the selector as verifier by default,
+> `--no-omission-check` turns it off, and `per_sample.json` names the word each
+> kept line still lacks (`omitted`, `omission_support`). `probe_writer.py` — the
+> page — always has it. Verified end to end on CPU with the real TrOCR. 519 tests.
+>
+> **Run next: cell 7s**, after 7r's results are in. It is 7r plus this check,
+> into its own directory (`--tag omission`), so the two differ in exactly one
+> thing. CER should fall; identity may give a little, since the hand now chooses
+> among fewer draws. 7r and 7q now pass `--no-omission-check` explicitly.
+>
+> **The acceptance defaults changed on 2026-09-21** (width band, omission check).
+> An older cell re-run today runs under the new rules unless it is given
+> `--width-band 0 999 --no-omission-check`.
+>
+> **The seam is the model's, not our cut** — checked. Two in five omissions are
+> the first word, and some lines begin mid-word ("rtune"), which looked like a
+> crop at the wrong column. It is not: Emuru's own `generate` cuts at
+> `style_img.size(-1)`, which since T34 is a whole number of slices, so no crop
+> can take a word like "differ"; and pack lines carry little white to either side
+> (400 sampled: median 7 px, max 43, none near the 72 px of blank the stopping rule
+> watches for). What is left is the model's alignment: it reads `style_text + " " +
+> gen_text` and must place where the style image ends in it, and when it places
+> that a few characters late it starts mid-word. No cheap fix without a GPU; the
+> check above refuses those draws, and each draw is conditioned on a different
+> style line, so another is usually whole.
+>
 > ### T41, P0 step 2 of 3: the width check, and a correction — 2026-09-21
 >
 > **Run next: notebook cell 7r** (after cells 1–4). It is 7e unchanged — the same
@@ -35,8 +132,8 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > → "it will". At `ACCEPT_UNDERRUN = 1` it set aside **16 of 24 entirely correct
 > draws**; its runs reach 3 routinely and 8 once. It cannot tell a word the
 > generator left out from one it skipped itself, and one short word is exactly the
-> size of its noise. So `ACCEPT_UNDERRUN = None` by default; the function, the
-> counter and `--accept-underrun` stay. Had 7r run with it on, most draws would
+> size of its noise. So `ACCEPT_UNDERRUN = None` by default *(and all of it removed
+> in step 3, replaced by asking the reader whether the text is in the image)*. Had 7r run with it on, most draws would
 > have been unreadable, and in `hand` mode an unreadable request skips the choice
 > by hand — identity would likely have fallen, after 35 minutes.
 >
@@ -44,7 +141,7 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > of Amri's page the generated/real ink span is 0.91, 1.16, 1.03, 1.04, 0.79 — all
 > in band. Dropping "at" from forty characters moves the width ~5%, inside natural
 > variation. It catches smears and truncations, not one missing word. **Nothing in
-> the pipeline catches a single dropped short word yet.** What would: a reader
+> the pipeline catches a single dropped short word yet** *(superseded: step 3 does)*. What would: a reader
 > asked *whether this text is in the image* — the recogniser scoring the target
 > text teacher-forced, token by token — rather than *what text is in the image*,
 > which a free-running decoder with a language model's habits answers by skipping
