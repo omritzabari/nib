@@ -66,6 +66,55 @@ line read at 9.3% and the failures above 90%. The selector is TrOCR-small, whose
 own rate on real lines has not been measured here, so the threshold is loose on
 purpose -- a tight one would spend draws re-rolling lines that were fine."""
 
+ACCEPT_UNDERRUN: int | None = None
+"""The longest run of its text a readable draw may leave out -- see
+:func:`underrun` -- or None for not judged. **Off by default, because the reader
+cannot be trusted with this question.**
+
+The check was built for a real failure: on Amri's page the generator wrote "warm
+noon" for "warm at noon", visibly, in the pixels. It was set to 1 on readings of
+that page -- but those readings were taken by eye, a reader that misses nothing.
+The pipeline's reader is TrOCR-small, and run end to end on the fake generator,
+which draws every character of its text in a clean typeface, it left words out on
+its own: "not the rapid calculation" read "not rapid calculation", "Whirlwind or
+Typhoon" read "whirlwind typhoon", "it will be enough" read "it will". Over twelve
+complete lines its runs reached 3 routinely and 8 once, and at 1 it set aside 16
+of 24 draws that were entirely correct.
+
+A reader that drops short words cannot tell a word the generator left out from
+one it skipped itself, and the size of the failure being hunted -- one short word
+-- is exactly the size of its noise. Turned on at a threshold its noise does not
+reach, the check would catch nothing that matters; turned on at 1, it rejects
+sound draws, and in ``hand`` mode a request with nothing readable skips the choice
+by hand altogether.
+
+Kept, with ``SelectionLog.chosen_readings``, for a reader that can answer it: one
+asked *whether this text is in the image* rather than *what text is in the image*,
+which a free-running decoder with a language model's habits is not.
+"""
+
+WIDTH_BAND = (0.70, 1.40)
+"""What share of its predicted width a readable draw must occupy.
+
+A line far too narrow for its text has lost some of it; one far too wide has
+repeated itself or run into a smear. Both are visible without a recogniser at
+all, from what the style lines say this writer's hand costs per character --
+which is the one thing enrolment always knows, since the user supplies the
+transcription of their own page.
+
+**The relation is U-shaped, which is why nothing had found it.** Across a run the
+linear correlation between this ratio and CER is +0.03. Split into bands it is
+stark. Outside [0.70, 1.40) the mean CER of a draw is 29.4%, 31.3% and 75.1% on
+cells 7c, 7e and the zero-shot run, against 13.9%, 12.4% and 30.8% over all draws
+there, while only 21.7%, 13.3% and 27.7% of draws fall outside. Tightening the
+band rejects far more and rejects better draws: at [0.90, 1.25) it sets aside
+47-61% of everything and what it sets aside averages 17-41%.
+
+The centre is below 1 on purpose -- the generator writes about 15% narrower than
+the hand it is copying -- so a band centred on 1.0 would reject sound draws for
+being compact. These bounds are measured against that centre, not around it.
+"""
+
 ACCEPT_OVERRUN = 2
 """A readable draw may carry at most this many characters beyond either end of
 its text -- see :func:`overrun`.
@@ -171,6 +220,104 @@ def overrun(reading: str, target: str) -> int:
     return max(before, len(read) - end)
 
 
+def underrun(reading: str, target: str) -> int:
+    """The longest run of consecutive target characters the reading does not carry.
+
+    The mirror of :func:`overrun`, and the check this pipeline never had. A draw
+    can leave a word out, read well under ``ACCEPT_CER``, and carry nothing
+    beyond its text -- so every rule in this module passed it. On Amri's page
+    "warm at noon" came back "walm noon", "Order #378 at Lior's Cafe" came back
+    "Order 3 t Lior's Cafe", and "If You find it, Please" came back "I You find
+    .. please". A reader rejects a page with words missing before forming any
+    opinion of the handwriting.
+
+    **A run, not a total.** Single characters missed here and there are the
+    reader's own noise, and CER counts them already; three in a row are a word
+    that was not written. This is the same distinction :func:`overrun` draws on
+    the other side, where the two ends are taken by ``max`` rather than summed.
+
+    Spaces are removed from both sides first, as there, so a reader's spacing
+    costs nothing -- which also means a dropped two-letter word scores 2 and not
+    3, the space going with it.
+
+    **Ties, and why they break the other way here.** The alignment is the
+    cheapest one; among equally cheap ones the walk prefers the deletion. That
+    is the opposite of :func:`overrun`, which charges an ambiguous end to CER and
+    errs toward keeping the draw. Writing a little beyond the text is cosmetic,
+    so erring toward keeping is right there. A word left out is the failure that
+    makes a page unusable, so erring toward *catching* it is right here: a miss
+    ships a page with a word gone, while a false alarm costs one redraw -- and
+    none at all in ``hand`` mode, where every draw is made regardless.
+
+    A misread letter is still not counted, because substituting it is strictly
+    cheaper than deleting and inserting, and this rule only decides ties.
+    """
+    read = "".join(reading.split())
+    text = "".join(target.split())
+    if not text:
+        return 0
+
+    # cost[i][j]: the cheapest alignment of the first i characters of the text
+    # with the first j of the reading.
+    cost = [[0] * (len(read) + 1) for _ in range(len(text) + 1)]
+    for i in range(1, len(text) + 1):
+        cost[i][0] = i
+    for j in range(1, len(read) + 1):
+        cost[0][j] = j
+    for i in range(1, len(text) + 1):
+        previous, row = cost[i - 1], cost[i]
+        for j in range(1, len(read) + 1):
+            row[j] = min(
+                previous[j - 1] + (text[i - 1] != read[j - 1]),
+                row[j - 1] + 1,  # the reading carries a character the text does not
+                previous[j] + 1,  # the text carries one the reading does not
+            )
+
+    longest = run = 0
+    i, j = len(text), len(read)
+    while i > 0:
+        here = cost[i][j]
+        if cost[i - 1][j] + 1 == here:  # the text's character is not in the reading
+            i -= 1
+            run += 1
+            longest = max(longest, run)
+        elif j > 0 and cost[i - 1][j - 1] + (text[i - 1] != read[j - 1]) == here:
+            i, j, run = i - 1, j - 1, 0
+        else:
+            # A character of the reading that answers to nothing in the text does
+            # not interrupt a run: the text's characters either side of it are
+            # both still absent from the reading.
+            j -= 1
+    return longest
+
+
+def predicted_width(
+    style_images: Sequence[np.ndarray], style_texts: Sequence[str] | None, target: str
+) -> float | None:
+    """How wide this hand should need for ``target``, from its own style lines.
+
+    Every style line carries a known transcription -- the user supplies one for
+    their page at enrolment, always -- so each gives this writer's pixels per
+    character, and their mean predicts any other text in the same hand. Nothing
+    is needed from the target's real line, which at generation time does not
+    exist.
+
+    Returns None when there is nothing to predict from: a generator that needs no
+    transcription of its style line, such as DiffBrush, leaves the width
+    unjudged rather than judged on a guess.
+    """
+    if not style_texts or not target.strip():
+        return None
+    rates = [
+        float(np.asarray(image).shape[1]) / len(text)
+        for image, text in zip(style_images, style_texts, strict=True)
+        if len(text) > 0
+    ]
+    if not rates:
+        return None
+    return float(np.mean(rates)) * len(target)
+
+
 def _unit(vectors: np.ndarray) -> np.ndarray:
     vectors = np.asarray(vectors, dtype=np.float64)
     norms = np.linalg.norm(vectors, axis=-1, keepdims=True)
@@ -187,6 +334,16 @@ class Draw:
     truncated: bool
     overrun: int = 0
     """Characters read beyond either end of the text."""
+
+    underrun: int = 0
+    """The longest run of the text's characters the reading does not carry."""
+
+    width_ratio: float | None = None
+    """This draw's width as a share of what the style lines predict for the text,
+    or None where there was no transcription to predict from."""
+
+    reading: str = ""
+    """What the selector read, kept so the thresholds above can be calibrated."""
 
     similarity: float | None = None
     """Cosine similarity to the writer's page, when selecting by hand."""
@@ -210,8 +367,21 @@ class SelectionLog:
     rejected_for_overrun: int = 0
     """Draws that read well enough but wrote beyond the text, set aside for it."""
 
+    rejected_for_underrun: int = 0
+    """Draws that read well enough but left part of the text out. One draw can be
+    counted here and under the two neighbouring fields at once: these name the
+    faults found, not a partition of the draws."""
+
+    rejected_for_width: int = 0
+    """Draws that read well enough but were the wrong width for their text."""
+
     chosen_scores: list[float] = field(default_factory=list)
     """The selector's CER for each kept image, in request order."""
+
+    chosen_readings: list[str] = field(default_factory=list)
+    """What the selector read of each kept image, in request order. Stored because
+    ``ACCEPT_UNDERRUN`` cannot be calibrated without it, and no run before this
+    one kept it."""
 
     @property
     def draws_per_request(self) -> float:
@@ -227,6 +397,8 @@ class SelectionLog:
             "none_accepted": self.none_accepted,
             "moved_by_hand": self.moved_by_hand,
             "rejected_for_overrun": self.rejected_for_overrun,
+            "rejected_for_underrun": self.rejected_for_underrun,
+            "rejected_for_width": self.rejected_for_width,
         }
 
     def summary(self) -> str:
@@ -245,6 +417,8 @@ class SelectionLog:
             lines.append(f"  {self.first_draw_accepted} accepted on the first draw")
         lines += [
             f"  {self.rejected_for_overrun} read well but wrote beyond the text, set aside",
+            f"  {self.rejected_for_underrun} read well but left part of the text out, set aside",
+            f"  {self.rejected_for_width} read well but was the wrong width for the text",
             f"  {self.none_accepted} kept as the best of an unreadable set",
             "  scored by selectors, not by the models that measure below",
         ]
@@ -268,6 +442,8 @@ class CandidateGenerator:
         width_range: tuple[int, int] = STYLE_WIDTH_RANGE,
         hand: Embedder | None = None,
         accept_overrun: int = ACCEPT_OVERRUN,
+        accept_underrun: int | None = ACCEPT_UNDERRUN,
+        width_band: tuple[float, float] = WIDTH_BAND,
         style_by: str = "width",
     ) -> None:
         if candidates < 1:
@@ -277,6 +453,8 @@ class CandidateGenerator:
         self.candidates = candidates
         self.accept_cer = accept_cer
         self.accept_overrun = accept_overrun
+        self.accept_underrun = accept_underrun
+        self.width_band = width_band
         self.width_range = width_range
         self.style_by = style_by
         self.hand = hand
@@ -320,8 +498,14 @@ class CandidateGenerator:
                 empty_draws += 1
                 continue
             draws.append(draw)
-            if draw.score <= self.accept_cer and draw.overrun > self.accept_overrun:
-                self.selection.rejected_for_overrun += 1
+            # Named faults, not a partition: a draw can carry more than one.
+            if draw.score <= self.accept_cer:
+                if draw.overrun > self.accept_overrun:
+                    self.selection.rejected_for_overrun += 1
+                if self._left_out(draw):
+                    self.selection.rejected_for_underrun += 1
+                if not self._in_band(draw):
+                    self.selection.rejected_for_width += 1
             if self.hand is None and self._readable(draw):
                 break
 
@@ -343,6 +527,7 @@ class CandidateGenerator:
         if not self._readable(best):
             self.selection.none_accepted += 1
         self.selection.chosen_scores.append(best.score)
+        self.selection.chosen_readings.append(best.reading)
 
         self.truncations.generated += 1
         if best.truncated:
@@ -350,7 +535,23 @@ class CandidateGenerator:
         return best.image
 
     def _readable(self, draw: Draw) -> bool:
-        return draw.score <= self.accept_cer and draw.overrun <= self.accept_overrun
+        return (
+            draw.score <= self.accept_cer
+            and draw.overrun <= self.accept_overrun
+            and not self._left_out(draw)
+            and self._in_band(draw)
+        )
+
+    def _left_out(self, draw: Draw) -> bool:
+        return self.accept_underrun is not None and draw.underrun > self.accept_underrun
+
+    def _in_band(self, draw: Draw) -> bool:
+        """True when the width was not judged at all, so a generator that carries
+        no style transcription is never rejected for a ratio nobody could compute."""
+        if draw.width_ratio is None:
+            return True
+        low, high = self.width_band
+        return low <= draw.width_ratio < high
 
     def _choose(self, request: GenerationRequest, draws: list[Draw]) -> Draw:
         readable = [draw for draw in draws if self._readable(draw)]
@@ -363,7 +564,17 @@ class CandidateGenerator:
         vectors = _unit(self.hand([draw.image for draw in readable]))
         similarities = vectors @ page
         scored = [
-            Draw(d.image, d.score, d.style_index, d.truncated, d.overrun, float(s))
+            Draw(
+                d.image,
+                d.score,
+                d.style_index,
+                d.truncated,
+                d.overrun,
+                d.underrun,
+                d.width_ratio,
+                d.reading,
+                float(s),
+            )
             for d, s in zip(readable, similarities, strict=True)
         ]
         best = max(scored, key=lambda draw: draw.similarity)
@@ -401,12 +612,16 @@ class CandidateGenerator:
             return None
         truncated = base_log is not None and len(base_log.events) > before
         reading = self.selector.read([image])[0]
+        expected = predicted_width(request.style_images, request.style_texts, request.text)
         return Draw(
             image,
             cer(reading, request.text),
             index,
             truncated,
             overrun(reading, request.text),
+            underrun(reading, request.text),
+            None if not expected else float(image.shape[1]) / expected,
+            reading,
         )
 
     def _last_truncation(self, request: GenerationRequest, draw: Draw):

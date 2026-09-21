@@ -10,9 +10,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nib.models.candidates import CandidateGenerator, overrun, style_order
+from nib.models.candidates import CandidateGenerator, overrun, style_order, underrun
 from nib.models.emuru import Truncation, TruncationLog
 from nib.models.generator import EmptyGeneration, GenerationRequest, GeneratorError
+
+PIXELS_PER_CHARACTER = 28
+"""What the scripted hand takes per character.
+
+The width check compares a draw against what the style lines say this writer's
+hand costs, so a scripted draw and the style lines it came from have to carry
+coherent geometry or every test would trip it. Both sides are built from this
+one number, which puts an ordinary scripted draw at a ratio of 1.0.
+"""
 
 
 def _line(width: int, value: int = 0) -> np.ndarray:
@@ -23,10 +32,16 @@ def _line(width: int, value: int = 0) -> np.ndarray:
 
 class ScriptedGenerator:
     """Each call returns the next scripted outcome: a reading, None for empty,
-    or ("truncated", reading)."""
+    or ("truncated", reading).
 
-    def __init__(self, script):
+    ``widths`` overrides the drawn width for each call in turn, for the tests
+    that need a draw too narrow or too wide for its text; by default a draw is
+    as wide as the scripted hand would write its request.
+    """
+
+    def __init__(self, script, widths=None):
         self.script = list(script)
+        self.widths = list(widths) if widths is not None else None
         self.calls: list[GenerationRequest] = []
         self.truncations = TruncationLog()
 
@@ -46,8 +61,12 @@ class ScriptedGenerator:
             raise EmptyGeneration("scripted empty")
         truncated = isinstance(outcome, tuple)
         reading = outcome[1] if truncated else outcome
+        if self.widths is not None:
+            width = self.widths[len(self.calls) - 1]
+        else:
+            width = PIXELS_PER_CHARACTER * len(request.text)
         # The draw's number is written into the image, and the reader maps it back.
-        image = _line(300, value=len(self.calls))
+        image = _line(width, value=len(self.calls))
         READINGS[len(self.calls)] = reading
         self.truncations.generated += 1
         if truncated:
@@ -63,11 +82,31 @@ class ScriptedReader:
         return [READINGS[int(image[30, 10])] for image in images]
 
 
+def _style_name(index: int) -> str:
+    return f"style {index}"
+
+
+def _style_text(index: int, width: int) -> str:
+    """A style line's transcription: it names its line, and it is as long as the
+    line is wide.
+
+    A transcription that did not match its line's width would make the width
+    check measure the fixture rather than the draw.
+    """
+    name = _style_name(index)
+    return name.ljust(max(len(name), round(width / PIXELS_PER_CHARACTER)), "s")
+
+
+def _style_used(base) -> list[str]:
+    """Which style line each draw was handed, by name."""
+    return [call.style_texts[0][: len(_style_name(0))] for call in base.calls]
+
+
 def _request(widths=(800, 800, 800), text="hello world"):
     return GenerationRequest(
         text=text,
         style_images=[_line(w) for w in widths],
-        style_texts=[f"style {i}" for i in range(len(widths))],
+        style_texts=[_style_text(i, w) for i, w in enumerate(widths)],
     )
 
 
@@ -174,7 +213,7 @@ def test_every_draw_carries_exactly_one_style_line_with_its_own_text():
     for call in base.calls:
         assert len(call.style_images) == 1
         assert len(call.style_texts) == 1
-    used = [call.style_texts[0] for call in base.calls]
+    used = _style_used(base)
     assert set(used[:2]) == {"style 1", "style 2"}
     assert used[2] == "style 0"
 
@@ -185,7 +224,7 @@ def test_draws_cycle_through_the_style_lines_when_there_are_more_draws_than_line
 
     wrapper.generate([_request(widths=(800, 700))])
 
-    used = [call.style_texts[0] for call in base.calls]
+    used = _style_used(base)
     assert used == ["style 0", "style 1", "style 0", "style 1"]
 
 
@@ -260,6 +299,59 @@ def test_a_misread_letter_inside_the_line_is_not_writing_beyond_it():
     assert overrun("hellu world", "hello world") == 0
 
 
+# ---------------------------------------------------------------------------
+# Writing *less* than the text. The mirror of the block above, and the failure
+# that had nothing watching it: on Amri's page "warm at noon" came out "walm
+# noon" and "Order #378 at Lior's Cafe" came out "Order 3 t Lior's Cafe". Each
+# reads well under the CER threshold with an overrun of zero.
+# ---------------------------------------------------------------------------
+
+
+def test_a_dropped_word_is_counted():
+    assert underrun("warm noon", "warm at noon") == 2
+
+
+def test_the_longest_run_is_what_counts_not_the_total():
+    """Three separate misses of one character are a reader's noise; one run of
+    three is a word gone. The sum cannot tell them apart and CER already has it."""
+    assert underrun("ello worl tday", "hello world today") == 1
+
+
+def test_a_run_inside_the_line_is_found():
+    assert underrun("Order 3 t Lior", "Order #378 at Lior") == 3
+
+
+def test_a_missing_beginning_is_counted():
+    """Spaces are removed first, so the run is the five letters, not six."""
+    assert underrun("world", "hello world") == 5
+
+
+def test_a_missing_end_is_counted():
+    assert underrun("hello", "hello world") == 5
+
+
+def test_a_misread_letter_is_not_a_missing_one():
+    """The alignment that substitutes is preferred to the one that deletes, so
+    ambiguity is charged to CER rather than counted here."""
+    assert underrun("hellu world", "hello world") == 0
+
+
+def test_writing_beyond_the_text_is_not_writing_less_of_it():
+    assert underrun("hello world te Te", "hello world") == 0
+
+
+def test_the_space_a_reader_drops_costs_nothing():
+    assert underrun("helloworld", "hello world") == 0
+
+
+def test_a_perfect_reading_has_none():
+    assert underrun("hello world", "hello world") == 0
+
+
+def test_an_empty_reading_is_the_whole_text():
+    assert underrun("", "hello world") == 10
+
+
 def test_a_draw_that_keeps_writing_after_the_text_is_redrawn():
     # 35% CER: readable by that measure alone.
     base = ScriptedGenerator(["hello world again te Te", "hello world again"])
@@ -297,6 +389,123 @@ def test_when_every_draw_writes_beyond_the_text_the_best_read_is_kept_and_counte
 
 
 # ---------------------------------------------------------------------------
+# Writing less than the text, wired -- and off by default
+#
+# The failure is real: on Amri's page the generator wrote "warm noon" for "warm
+# at noon". But TrOCR-small, the reader, drops short words from complete lines on
+# its own, so by default a draw is not judged on what the reader left out. The
+# check stays available for a reader that can be trusted with it.
+# ---------------------------------------------------------------------------
+
+
+def test_by_default_a_draw_is_not_rejected_for_what_the_reader_left_out():
+    """Read end to end on the fake generator, whose lines are complete by
+    construction, TrOCR-small read "not the rapid calculation" as "not rapid
+    calculation". A default that rejected that would reject sound draws."""
+    base = ScriptedGenerator(["not rapid calculation", "never used"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    wrapper.generate([_request(text="not the rapid calculation")])
+
+    assert len(base.calls) == 1
+    assert wrapper.selection.rejected_for_underrun == 0
+
+
+def test_turned_on_a_draw_that_leaves_a_word_out_is_redrawn():
+    # "hello world again" without "world": reads at 35%, well under the CER
+    # threshold, with no overrun.
+    base = ScriptedGenerator(["hello again", "hello world again"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4, accept_underrun=1)
+
+    (image,) = wrapper.generate([_request(text="hello world again")])
+
+    assert len(base.calls) == 2
+    assert int(image[30, 10]) == 2
+    assert wrapper.selection.rejected_for_underrun == 1
+    assert "1 read well but left part of the text out" in wrapper.selection.summary()
+
+
+def test_turned_on_one_dropped_letter_is_tolerated():
+    """Readers drop a letter from real lines too; CER counts that already."""
+    base = ScriptedGenerator(["hello wold", "never used"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4, accept_underrun=1)
+
+    wrapper.generate([_request()])
+
+    assert len(base.calls) == 1
+    assert wrapper.selection.rejected_for_underrun == 0
+
+
+# ---------------------------------------------------------------------------
+# The width the text should take
+#
+# A line too narrow for its text has lost some of it, and one far too wide has
+# repeated itself or run into a smear. Both are visible without a recogniser,
+# from what the style lines say this writer's hand costs per character. Measured
+# over three runs: outside [0.70, 1.40) the mean CER of a draw is 29%, 31% and
+# 75% against 14%, 12% and 31% over all draws, and only 13-28% are rejected.
+# ---------------------------------------------------------------------------
+
+
+def test_a_draw_far_too_narrow_for_its_text_is_redrawn():
+    # Half the width the hand would need: something was left out, whatever the
+    # reader made of it.
+    base = ScriptedGenerator(["hello world", "hello world"], widths=(150, 308))
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    (image,) = wrapper.generate([_request()])
+
+    assert len(base.calls) == 2
+    assert int(image[30, 10]) == 2
+    assert wrapper.selection.rejected_for_width == 1
+    assert "1 read well but was the wrong width" in wrapper.selection.summary()
+
+
+def test_a_draw_far_too_wide_for_its_text_is_redrawn():
+    base = ScriptedGenerator(["hello world", "hello world"], widths=(700, 308))
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    wrapper.generate([_request()])
+
+    assert len(base.calls) == 2
+    assert wrapper.selection.rejected_for_width == 1
+
+
+def test_an_ordinary_width_passes():
+    base = ScriptedGenerator(["hello world", "never used"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    wrapper.generate([_request()])
+
+    assert len(base.calls) == 1
+    assert wrapper.selection.rejected_for_width == 0
+
+
+def test_without_style_transcriptions_the_width_is_not_judged():
+    """DiffBrush needs no transcription of its style line, so there is nothing to
+    predict a width from. The check reports nothing rather than guessing."""
+    request = GenerationRequest(text="hello world", style_images=[_line(800)])
+    base = ScriptedGenerator(["hello world"], widths=(150,))
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    wrapper.generate([request])
+
+    assert len(base.calls) == 1
+    assert wrapper.selection.rejected_for_width == 0
+
+
+def test_the_reading_of_every_kept_draw_is_recorded():
+    """Nothing ever stored what the selector read, which is why the thresholds
+    here cannot be calibrated from any run already on disk."""
+    base = ScriptedGenerator(["hello world"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    wrapper.generate([_request()])
+
+    assert wrapper.selection.chosen_readings == ["hello world"]
+
+
+# ---------------------------------------------------------------------------
 # Keeping the draw closest to the hand
 # ---------------------------------------------------------------------------
 
@@ -313,7 +522,7 @@ class HandEmbedder:
         self.calls += 1
         out = []
         for image in images:
-            if image.shape[1] != 300:  # a style line, not a scripted draw
+            if int(image[30, 10]) == 0:  # a style line, not a scripted draw
                 out.append([1.0, 0.0])
             else:
                 out.append(self.directions[int(image[30, 10])])

@@ -313,6 +313,23 @@ def main(argv: list[str] | None = None) -> int:
         "(default: nib.models.candidates.ACCEPT_CER).",
     )
     parser.add_argument(
+        "--accept-underrun",
+        type=int,
+        default=None,
+        help="longest run of the text a kept draw may leave out. Off by default: "
+        "the selector drops short words from complete lines on its own, so it cannot "
+        "tell what the generator left out. See nib.models.candidates.ACCEPT_UNDERRUN.",
+    )
+    parser.add_argument(
+        "--width-band",
+        type=float,
+        nargs=2,
+        metavar=("LOW", "HIGH"),
+        default=None,
+        help="share of its predicted width a kept draw must occupy (default: "
+        "nib.models.candidates.WIDTH_BAND). '0 999' turns the check off.",
+    )
+    parser.add_argument(
         "--selector",
         default="microsoft/trocr-small-handwritten",
         help="recogniser that chooses between draws. Deliberately not the one that "
@@ -350,6 +367,14 @@ def main(argv: list[str] | None = None) -> int:
         help="run even when the baseline was measured on a different version of "
         "this pack. The numbers will not mean what they appear to.",
     )
+    parser.add_argument(
+        "--tag",
+        default=None,
+        help="appended to the output directory's name. The directory is named from "
+        "the flags alone, so a run whose *defaults* changed -- a new acceptance "
+        "rule, say -- would otherwise land on the earlier run's directory and "
+        "overwrite the very baseline it is meant to be compared with.",
+    )
     args, overrides = parser.parse_known_args(argv)
 
     repo = Path(__file__).resolve().parents[1]
@@ -386,6 +411,8 @@ def main(argv: list[str] | None = None) -> int:
         suffix += f"_style{args.style_by}"
     if args.adapter is not None:
         suffix += f"_{args.adapter.stem}"
+    if args.tag:
+        suffix += f"_{args.tag}"
     out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}{suffix}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
 
@@ -446,6 +473,14 @@ def main(argv: list[str] | None = None) -> int:
             selector,
             candidates=args.candidates,
             accept_cer=(candidates_mod.ACCEPT_CER if args.accept_cer is None else args.accept_cer),
+            accept_underrun=(
+                candidates_mod.ACCEPT_UNDERRUN
+                if args.accept_underrun is None
+                else args.accept_underrun
+            ),
+            width_band=(
+                candidates_mod.WIDTH_BAND if args.width_band is None else tuple(args.width_band)
+            ),
             hand=hand,
             style_by=args.style_by,
         )
@@ -532,7 +567,12 @@ def main(argv: list[str] | None = None) -> int:
     # until the end, so an exception inside a metric took the hour of generation
     # with it -- and HWD had never run on a GPU machine when the first run to
     # need it began. With these on disk, any metric can be recomputed without one.
-    _save_generated(out_dir, truths=truths, generated=generated)
+    _save_generated(
+        out_dir,
+        truths=truths,
+        generated=generated,
+        readings=getattr(selection, "chosen_readings", None),
+    )
 
     results = _measure(
         cfg,
@@ -772,7 +812,7 @@ def _save_analysis(out_dir, **arrays) -> None:
     print(f"\nanalysis          {out_dir / 'analysis.npz'}  (re-examine without a GPU)")
 
 
-def _save_generated(out_dir, *, truths, generated) -> None:
+def _save_generated(out_dir, *, truths, generated, readings=None) -> None:
     """What each sample *was*, and the image the model made for it.
 
     ``per_sample.json`` holds each sample's key, writer, text and the width it
@@ -789,6 +829,13 @@ def _save_generated(out_dir, *, truths, generated) -> None:
     for index, image in enumerate(generated):
         cv2.imwrite(str(images / f"{index:03d}.png"), image)
 
+    # The selector's reading of the kept draw, where there was a selector. It is
+    # what ACCEPT_UNDERRUN has to be calibrated against, and no run before this
+    # one stored it -- which is why that threshold cannot be settled from any
+    # output already on disk.
+    read = (
+        list(readings) if readings and len(readings) == len(generated) else [None] * len(generated)
+    )
     records = [
         {
             "key": truth.key,
@@ -796,8 +843,9 @@ def _save_generated(out_dir, *, truths, generated) -> None:
             "text": truth.text,
             "real_width": int(truth.image.shape[1]),
             "generated_width": int(image.shape[1]),
+            "reading": reading,
         }
-        for truth, image in zip(truths, generated, strict=True)
+        for truth, image, reading in zip(truths, generated, read, strict=True)
     ]
     (out_dir / "per_sample.json").write_text(
         json.dumps(records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

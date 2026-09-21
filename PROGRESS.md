@@ -6,7 +6,158 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
-> **Where things stand, 2026-09-17.** The system runs end to end on Amri's own page:
+> ### T41, P0 step 2 of 3: the width check, and a correction — 2026-09-21
+>
+> **Run next: notebook cell 7r** (after cells 1–4). It is 7e unchanged — the same
+> 150 requests, four draws, the draw closest to the hand kept — plus the width
+> check, written to its own directory with `--tag width` so 7e's results on Drive
+> are not overwritten. No extra time in `hand` mode. **Compare with 7e: identity
+> 69.8% [64.5, 75.2], CER 11.96%.** CER should fall; identity should not.
+> **The code must be pushed first: cell 1 pulls from GitHub.**
+>
+> **What is on:** `WIDTH_BAND = (0.70, 1.40)` via `predicted_width()`. The style
+> lines' known transcriptions give the writer's pixels per character, so a draw far
+> too narrow for its text (something lost) or far too wide (a repeat, a smear) is
+> set aside — no recogniser call. Chosen from the data: outside the band a draw's
+> mean CER is 29.4%, 31.3% and 75.1% on 7c, 7e and the zero-shot run, against
+> 13.9%, 12.4% and 30.8% over all draws, with only 21.7%, 13.3% and 27.7% of draws
+> outside. Tighter bands reject more and better draws. The relation is U-shaped,
+> which is why the linear correlation is +0.03. The centre sits below 1 because
+> the generator writes ~15% narrower than the hand it copies. Skipped when there
+> is no style transcription (DiffBrush). `--width-band 0 999` turns it off.
+>
+> **Correction — `underrun` does not work with this reader, and is off.** Step 1
+> reported two of the page's three dropped words caught. Those readings were taken
+> **by eye**, a reader that misses nothing. Run end to end on the fake generator,
+> whose lines are complete by construction, TrOCR-small — the selector — dropped
+> short words **on its own**: "not the rapid calculation" → "not rapid
+> calculation", "Whirlwind or Typhoon" → "whirlwind typhoon", "it will be enough"
+> → "it will". At `ACCEPT_UNDERRUN = 1` it set aside **16 of 24 entirely correct
+> draws**; its runs reach 3 routinely and 8 once. It cannot tell a word the
+> generator left out from one it skipped itself, and one short word is exactly the
+> size of its noise. So `ACCEPT_UNDERRUN = None` by default; the function, the
+> counter and `--accept-underrun` stay. Had 7r run with it on, most draws would
+> have been unreadable, and in `hand` mode an unreadable request skips the choice
+> by hand — identity would likely have fallen, after 35 minutes.
+>
+> **The width check does not catch those words either.** On the five blind pairs
+> of Amri's page the generated/real ink span is 0.91, 1.16, 1.03, 1.04, 0.79 — all
+> in band. Dropping "at" from forty characters moves the width ~5%, inside natural
+> variation. It catches smears and truncations, not one missing word. **Nothing in
+> the pipeline catches a single dropped short word yet.** What would: a reader
+> asked *whether this text is in the image* — the recogniser scoring the target
+> text teacher-forced, token by token — rather than *what text is in the image*,
+> which a free-running decoder with a language model's habits answers by skipping
+> function words. That is the next component.
+>
+> Also this step: the fallback's (CER, text left out) ordering is reverted to CER
+> alone, since it leaned on the same untrustworthy signal; `per_sample.json` now
+> carries the selector's `reading` (verified: 60 of 60 on a local fake run), which
+> no run stored before; `--tag` on `evaluate_generator.py`; cell **7q** now passes
+> `--width-band 0 999`, so the imitate adapter is still compared with 7c on one
+> variable. `ACCEPT_CER` stays 0.5 — tightening it needs the selector's own rate
+> on real lines, which has never been measured. 523 tests pass.
+>
+> ### T41, P0 step 1 of 3: `underrun`, the check that was missing — 2026-09-20
+>
+> `nib.models.candidates.underrun(reading, target)` — the longest run of
+> consecutive target characters the reading does not carry. The mirror of
+> `overrun`, which had no counterpart, so a draw that **left a word out** read
+> well under `ACCEPT_CER`, carried nothing beyond its text, and was accepted.
+> 10 tests; 515 pass; nothing is wired to it yet, so no behaviour changed.
+>
+> A run and not a total: single characters missed here and there are the reader's
+> noise and CER counts them already. Spaces are stripped from both sides as in
+> `overrun`, so a dropped two-letter word scores 2, its space going with it.
+>
+> **Ties break the opposite way from `overrun`, on purpose.** `overrun` charges
+> an ambiguous end to CER and errs toward keeping the draw, because writing a
+> little beyond the text is cosmetic. A word left out is what makes a page
+> unusable, so this errs toward catching it: a miss ships a page with a word
+> gone, a false alarm costs one redraw — and none at all in `hand` mode, where
+> every draw is made regardless. A misread letter is still not counted, because
+> substituting is strictly cheaper than deleting and this rule only decides ties.
+>
+> Measured on the three failures visible in `probe_passage_page1/comparison.png`
+> and two clean lines as controls:
+>
+> | asked | read | `underrun` | `overrun` |
+> |---|---|---|---|
+> | `warm at noon` | `walm noon.` | **2** | 1 |
+> | `Order #378 at Lior's Cafe` | `Order 3 t Lior's Cafe:` | **3** | 1 |
+> | `If You find it, Please` | `I You find .. please` | 1 | 0 |
+> | `...though Venice is his dream` | `...though Venice is his dleam` | 0 | 0 |
+> | `not the rapid calculation speed` | `nat the rapid calculation speed` | 0 | 0 |
+>
+> Two of the three caught at a threshold of 2, both controls clean. **The third
+> is a real limitation and belongs on the record:** `it,` came back `..`, which
+> is content replaced by rubbish, not content deleted, and no alignment statistic
+> sees it.
+>
+> **Superseded by step 2, above.** The readings in this table were taken by eye.
+> With TrOCR-small, the pipeline's reader, the check rejects correct lines and is
+> off by default; and the width band does not catch line 16 either (0.79, in band).
+>
+> ### Outside review answered against the repository, 2026-09-20
+>
+> `docs/review-2026-09-20-claude.md`. Every figure in it was computed from
+> `outputs/*/analysis.npz` and `outputs/*/samples/` with no GPU. Four findings
+> change the order of work:
+>
+> - **The system drops a short word a line, and nothing rejects it.**
+>   `candidates.overrun` catches a draw that writes *beyond* the text; there is no
+>   counterpart for one that writes *less*, and `ACCEPT_CER` is 0.5. On the page:
+>   "warm at noon" -> "walm noon", "Order #378 at Lior's Cafe" -> "Order 3 t Lior's
+>   Cafe", "If You find it" -> "I You find". Each reads at 7-14% CER with
+>   `overrun = 0` and is accepted as the first readable draw. A reader rejects a
+>   page with words missing before judging the hand. **First thing to fix, no GPU.**
+> - **"Small marks vanish" is not the mechanism.** Generated lines carry 2.3-3x
+>   *more* small blobs than real ones, on 35% less ink, median component area
+>   173 -> 77, stroke width unchanged. That is fragmentation, not fading. On Amri's
+>   own page there is no fragmentation at all (3.90 -> 3.94 components per 100
+>   columns, his hand is disconnected print): there the defect is 24% less ink at
+>   the same number of marks -- the marks are present and too weak.
+> - **The writing is drawn ~20% too small** (ink height 0.94 -> 0.79 of the band).
+>   This is the *opposite* of row 12: cropping tight erases that information, which
+>   is why it cost 4.7 points. Rescaling to match the style line's extent is untried.
+> - **Identity 69.8% and detectability 96.9% are both true.** A leave-one-out
+>   logistic regression over ten trivial image statistics -- no network -- tells
+>   real from generated at 96.9% [+-4.3]. Biggest single giveaway: the spread of ink
+>   darkness (48.0 real against 38.1 generated), 93.8% alone. Only detectability is
+>   the product's question.
+>
+> The metric itself survived its strongest attack: recomputing identity from the
+> relative gap moves every run down 5-9 points and changes no ordering. But
+> `nearest_is_right`, already stored in every `analysis.npz` and never compared,
+> separates configurations twice as sharply (7e 63.0% against 7m 46.6%, same 73
+> writers, where identity moved 69.8 -> 61.8).
+>
+> **Order of work, replacing the choice below:**
+>
+> 1. **P0, no GPU** -- reject draws that drop words. A check symmetric to
+>    `overrun`: longest run of deleted target characters, calibrated on the 290 real
+>    CVL lines the way `ACCEPT_OVERRUN` was.
+> 2. **P1, no GPU** -- match the generated line's ink extent, ink per column and
+>    tone percentiles to the writer's style line; re-score HWD on Colab over images
+>    already on disk. Stop if identity does not rise 4 points and detectability does
+>    not fall below 85%.
+> 3. **P2, ~1 GPU-hour** -- `--objective imitate`, **general adapter over the 215
+>    training writers**, not per-writer. Changes: learning rate 1e-4 -> 3e-5, 3,000
+>    steps, probe at 0/300/800/1,500/3,000 and keep the best checkpoint; prefix line
+>    constrained to the 500-1,100 px band used at inference; add a 200-step
+>    `context="other"` control at the same learning rate -- if `same` and `other`
+>    move identity the same way, the run is watching domain drift, not the
+>    objective. Stop criterion: paired gain >= 5 points, interval excluding zero.
+> 4. **P3** -- blind test with 40 balanced pairs of full lines and 3+ judges, over
+>    {system, cut-and-paste, real}. The current `blind/key.json` has n = 5 with `A`
+>    real in 4 of 5.
+>
+> Row 6 (-17.9) is the **positive control** for P2, not an argument against it: the
+> prefix was uninformative, so the cheapest descent direction was to suppress the
+> conditioning, and the model found 17.9 points there. `imitate` is the first
+> objective under which copying the prefix is the cheapest direction available.
+>
+> **Where things stood before the review, 2026-09-17.** The system runs end to end on Amri's own page:
 > 22 of 22 lines of new text, reading about as well as his hand, and to his eye "the
 > base looks not bad at all" but it is not yet his hand -- small parts vanish. On
 > CVL, Emuru carries 65% of a writer's identity (70% keeping the draw closest to the
