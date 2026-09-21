@@ -6,6 +6,36 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
+> ### T42 step 3: broken strokes cannot be mended after the fact — 2026-09-21
+>
+> After calibration the lines still give themselves away at 74.9%, now mostly by
+> **broken strokes**: more pieces of ink per 100 columns than the writer (5.65
+> against 3.60) and more empty columns inside the writing (0.31 against 0.24).
+> Four things tried on 7e's 150 lines, all negative, none kept in the code:
+>
+> - **Faint, not broken?** No. Counting pieces at every threshold from 100 to 250
+>   -- at 250 anything not almost white is ink -- the model's lines keep ~40% more
+>   pieces than real ones (3.02 against 2.34 at 250). The gaps are white.
+> - **Specks, not broken?** No. The excess is spread over every size from 1 to 149
+>   px; pieces of 150 px and more -- whole words -- are as many as in real lines
+>   (1.24 against 1.22). Letters come apart into fragments.
+> - **Closing the gaps** (dilate then erode the ink): at 4 px the pieces reach the
+>   real rate (3.66 against 3.60) but strokes thicken (2.41 against 2.09) and the
+>   judge rises to 77.6%; at 3 px, 72.9%. Closing each line only as far as the
+>   writer's own connectivity: 76.9% -- 90 of 150 lines needed the strongest
+>   setting and still fell short.
+> - **Tightening the spacing** to the writer's share of empty columns: that
+>   statistic falls to chance (0.24 against 0.24) and the judge stays at 74.6%
+>   -- it leans on the other stroke statistics instead.
+>
+> **The breaks are in how the model draws.** Post-processing with these tools has
+> reached its limit at ~75%. What can change it is the model: 7t trains it per
+> user on the task it performs, and `scripts/detectability.py --images baseline
+> adapted` (cell "7t, judged") says whether its strokes break less. If not, the
+> next candidate is a learned repair -- a small network trained to restore real
+> CVL lines from artificially broken ones -- which is a model of its own and
+> about an hour of T4.
+>
 > ### T42 step 2: the output fitted to each writer's page — 2026-09-21
 >
 > `nib.inference.calibrate`: `measure_hand(style_images, style_texts)` measures a
