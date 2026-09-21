@@ -6,6 +6,38 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
+> ### The goal, restated by Amri — and the plan it gives — 2026-09-21
+>
+> **nib is an app for anyone: any person, any handwriting — cursive, print, messy —
+> uploads one page, gets the model adapted to them, and typed text comes back in
+> their hand.** Not Amri's hand; his page is one real-world test case. Written into
+> CLAUDE.md. Cutting a user's own letters out and stitching them, which the review
+> proposed as a fallback because his hand is print, is **rejected** and withdrawn
+> from `docs/review-2026-09-20-claude.md` and from the order of work below.
+>
+> Under that goal, the plan:
+>
+> 1. **7s** — refuse a draw that left a word out. Correctness, for every writer.
+>    Ready; ~2 hours.
+> 2. **7t — the model adapted to each user, on the task it performs.** Built long
+>    ago and never run: `evaluate_finetune.py --context same` trains each writer's
+>    LoRA on pairs of their *own* lines — one in front, loss on the next — which is
+>    what a user's page provides and what generation asks. A mirror of 7f (same 24
+>    writers, lines, targets, rank, steps, noise 0.5), changing only whose line is in
+>    front. 7f's -17.9 is the reason to expect movement: sixteen lines and 150
+>    steps moved per-writer copying by eighteen points in the wrong direction. The
+>    review's advice to run `imitate` only as a general adapter was wrong for this
+>    goal — per-user adaptation is the product, and row 6 shows it can move the
+>    model. **Criterion: identity +5 points paired, interval above zero, CER no
+>    worse than a few points.** ~75 minutes.
+> 3. **7q** — the general `imitate` adapter, which would raise the base every user
+>    starts from. Built; run when the GPU is free.
+> 4. **Output calibrated from each user's page** (no GPU): ink weight and tone,
+>    size, and within-line variation, measured on the user's own lines and applied
+>    to what the model writes. Judged on the held-out CVL writers by the
+>    discriminator of review §1.6 (96.9% today), then on Amri's page.
+> 5. **A blind test over several people's pages** decides when it is done.
+>
 > ### 7r measured: the width check is neutral; one line in five confirmed — 2026-09-21
 >
 > | 150 requests, `hand` mode | 7e | 7r (+ width check) |
@@ -246,8 +278,9 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 >    move identity the same way, the run is watching domain drift, not the
 >    objective. Stop criterion: paired gain >= 5 points, interval excluding zero.
 > 4. **P3** -- blind test with 40 balanced pairs of full lines and 3+ judges, over
->    {system, cut-and-paste, real}. The current `blind/key.json` has n = 5 with `A`
->    real in 4 of 5.
+>    {system, real}, on several writers' pages. The current `blind/key.json` has
+>    n = 5 with `A` real in 4 of 5. *(Cut-and-paste, once a condition here, is
+>    rejected -- see CLAUDE.md, 2026-09-21.)*
 >
 > Row 6 (-17.9) is the **positive control** for P2, not an argument against it: the
 > prefix was uninformative, so the cheapest descent direction was to suppress the

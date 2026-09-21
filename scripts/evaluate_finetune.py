@@ -118,7 +118,9 @@ def main(argv: list[str] | None = None) -> int:
         default=finetune.DEFAULT_CONFIG.context,
         help="own: train on the writer's lines alone, as T29 did. other: put a "
         "line by a writer from the training split in front of each, and count the "
-        "loss on the writer's line only, so the hand cannot be copied from context.",
+        "loss on the writer's line only, so the hand cannot be copied from context. "
+        "same: put another of the writer's own lines in front, loss on the second -- "
+        "the task generation performs, from what a user uploads (cell 7t).",
     )
     parser.add_argument("--noise", type=float, default=finetune.DEFAULT_CONFIG.noise)
     parser.add_argument("--selector", default="microsoft/trocr-small-handwritten")

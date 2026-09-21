@@ -5,6 +5,14 @@ generate new text in it. **The goal is that it works on a new person's own pages
 Adapting to that person may include a short per-writer fine-tune, provided it fits
 a reasonable time per user (Amri, 2026-09-14) -- it is no longer ruled out.
 
+**It is an app for anyone, not Amri's hand** (Amri, 2026-09-21, a hard requirement).
+Any person, with any handwriting -- cursive, print, messy -- uploads one page, gets
+the model adapted to them, and typed text comes back in their hand. Amri's page is
+one real-world test case, never the target: judge every change on the held-out CVL
+writers first. Never reason from the properties of his hand to a design choice.
+Cutting a user's own letters out of their page and stitching new text from them is
+**rejected** -- it fits only print hands and is not a model adapted to the user.
+
 **Read `PROGRESS.md` first.** It holds the live task state and the exact next action.
 
 ## Who does what

@@ -242,7 +242,7 @@ an hour to wire zero-shot; the detail mechanism is the part to steal.
 glyph bank segmented out of the reference, with a reasoning model planning stroke
 order. No GPU. Reports HWD 1.33 against Emuru's 2.30 on IAM words. **The GitHub link
 in the paper returned 404 when checked on 2026-09-20** — verify before planning
-around it. It is also the cut-and-paste idea, done properly.
+around it.
 
 **InkSight** (Google, image → digital ink) makes the stroke route real: it recovers
 trajectories from a static image, which is the step that was assumed impossible.
@@ -253,16 +253,12 @@ regression, but the measurements say the dominant defect is ink deficit and
 fragmentation, which its reliability work targets directly, and it is the cheapest
 model swap available.
 
-**Cut-and-paste.** Amri's hand is **disconnected print**, the case where stitching
-wins outright because there are no joins to fake. HWD identity should be very high —
-it is literally his ink — and the ink-statistics half of detectability is solved for
-free. Two things to get right: sample *different* instances of each glyph, because
-the same `e` repeated twenty times pixel-for-pixel is what a reader notices first;
-and add a pangram-and-symbols line to enrolment, because 22 lines of ordinary
-English carry no `#`, `@`, `;` and few digits — exactly the marks reported missing.
-CER will not approach zero and should not: the floor is the writer's own legibility,
-about 10.7%, and a stitched page reading much better than that is evidence it is not
-his hand.
+**Cut-and-paste — rejected by the project's owner, 2026-09-21.** An earlier draft
+of this section recommended assembling new text from glyphs cut out of the
+user's own page, reasoning from Amri's hand being disconnected print. That was
+the wrong frame: the product is for *any* writer, cursive included, with the
+model adapted to them, and stitching fits only print hands and adapts no model.
+It is not a fallback. See CLAUDE.md.
 
 ---
 
@@ -281,8 +277,8 @@ route is closed, for free.
 changes in §7.
 
 **P3 — the blind test, properly.** 40 pairs, A/B balanced by coin flip, full lines,
-three or more judges who know the hand. Conditions: the system, cut-and-paste, real.
-Ship what wins. Stop criterion: the lower bound of the 95% interval on judge accuracy
+three or more judges who know the hand, over several writers' pages. Conditions:
+the system and real. Stop criterion: the lower bound of the 95% interval on judge accuracy
 below 65%.
 
 ---
@@ -290,8 +286,8 @@ below 65%.
 ## 6. On the second review (Gemini, same brief)
 
 Agrees on three points: HWD is font-trained and blind to human variability; MSE
-averages small marks away; cut-and-paste is probably the product answer. Independent
-convergence, worth weight.
+averages small marks away. (A third point both reviews made -- that cut-and-paste
+is the product answer -- is withdrawn: rejected by the owner, see §4.)
 
 Four errors:
 
@@ -381,4 +377,4 @@ increasing cost:
 
 **Stop criterion.** A paired gain of ≥ 5 points with an interval excluding zero on
 the same 150 requests. Otherwise stop training Emuru: six nulls through one mechanism
-is enough, and the remaining work is P0, P1 and cut-and-paste.
+is enough, and the remaining work is P0 and P1.
