@@ -1,0 +1,359 @@
+<title>איזו שורה אמיתית</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Frank+Ruhl+Libre:wght@500;700&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+  :root {
+    --ground: #eef1f0;
+    --surface: #ffffff;
+    --ink: #1b2430;
+    --muted: #5b6673;
+    --rule: #d3d9de;
+    --accent: #2f4f86;
+    --accent-soft: #e3e9f3;
+    --slip: #ffffff;
+    --focus: #c9851a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #12151a;
+      --surface: #1a1f26;
+      --ink: #e4e8ed;
+      --muted: #9aa5b1;
+      --rule: #2d343e;
+      --accent: #9db7e6;
+      --accent-soft: #223149;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #12151a;
+    --surface: #1a1f26;
+    --ink: #e4e8ed;
+    --muted: #9aa5b1;
+    --rule: #2d343e;
+    --accent: #9db7e6;
+    --accent-soft: #223149;
+  }
+  [hidden] { display: none !important; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font: 17px/1.55 "Assistant", "Segoe UI", Arial, sans-serif;
+  }
+  .page {
+    max-width: 980px;
+    margin: 0 auto;
+    padding-inline: 16px;
+    padding-block: 28px 56px;
+    display: grid;
+    gap: 22px;
+  }
+  h1, h2 {
+    font-family: "Frank Ruhl Libre", "David", Georgia, serif;
+    font-weight: 700;
+    text-wrap: balance;
+    margin: 0;
+  }
+  h1 { font-size: 2rem; line-height: 1.15; }
+  h2 { font-size: 1.25rem; font-weight: 500; }
+  p { margin: 0; max-width: 62ch; }
+  .muted { color: var(--muted); }
+  .label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 20px;
+    display: grid;
+    gap: 14px;
+  }
+  .steps { margin: 0; padding-inline-start: 1.2em; display: grid; gap: 6px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  input[type="text"] {
+    font: inherit;
+    color: var(--ink);
+    background: var(--ground);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 8px 12px;
+    min-width: 0;
+    flex: 1 1 220px;
+  }
+  button {
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--surface);
+    padding: 8px 20px;
+  }
+  button.quiet { background: transparent; color: var(--accent); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  /* A line of handwriting always sits on white paper, in both themes:
+     the ink's tone is part of what the judge is looking at. */
+  .slip {
+    direction: ltr;
+    background: var(--slip);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    line-height: 0;
+  }
+  .slip img { height: 46px; width: auto; max-width: none; display: block; }
+  .refs { display: grid; gap: 8px; }
+
+  .progress { display: grid; gap: 6px; }
+  .bar { height: 4px; background: var(--rule); border-radius: 2px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--accent); width: 0; transition: width 0.2s; }
+
+  .choices { display: grid; gap: 14px; }
+  .choice {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 14px;
+    align-items: center;
+    text-align: start;
+    background: var(--surface);
+    color: var(--ink);
+    border: 2px solid var(--rule);
+    border-radius: 6px;
+    padding: 12px;
+    font-weight: 400;
+  }
+  .choice:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .choice .mark {
+    font-family: "Frank Ruhl Libre", Georgia, serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--accent);
+    width: 1.6em;
+    text-align: center;
+  }
+  .choice .slip { min-width: 0; }
+  .code {
+    direction: ltr;
+    font: 0.85rem/1.5 "IBM Plex Mono", Consolas, monospace;
+    color: var(--ink);
+    background: var(--ground);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 10px;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 7.5em;
+    resize: vertical;
+  }
+  @media (max-width: 520px) {
+    h1 { font-size: 1.6rem; }
+    .slip img { height: 38px; }
+    .choice { grid-template-columns: 1fr; gap: 6px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .bar > span { transition: none; } }
+</style>
+
+<main class="page" dir="rtl">
+  <header class="progress">
+    <h1>איזו שורה אמיתית?</h1>
+    <p class="muted" id="subtitle">מבחן עיוור לכתב יד שנוצר במחשב</p>
+  </header>
+
+  <section class="panel" id="start">
+    <h2>איך זה עובד</h2>
+    <ol class="steps">
+      <li>בכל שאלה תראו שלוש שורות שכתב אדם אחד בכתב ידו.</li>
+      <li>מתחתן אותו משפט פעמיים: פעם אחת בכתב ידו של אותו אדם, ופעם אחת כתוב על ידי מחשב שמחקה אותו.</li>
+      <li>בחרו את השורה שלדעתכם כתב האדם עצמו. אם אינכם בטוחים — נחשו. אין משוב באמצע.</li>
+    </ol>
+    <p class="muted">40 שאלות, כעשר דקות. בסוף תקבלו קוד קצר לשלוח בחזרה.</p>
+    <div class="row">
+      <label class="label" for="name">השם שלכם</label>
+      <input type="text" id="name" autocomplete="name" maxlength="40" placeholder="למשל: דנה">
+      <button id="go" disabled>להתחיל</button>
+    </div>
+  </section>
+
+  <section id="trial" hidden>
+    <div class="progress">
+      <div class="row" style="justify-content: space-between">
+        <span class="label" id="count"></span>
+        <button class="quiet" id="back" hidden>חזרה לשאלה הקודמת</button>
+      </div>
+      <div class="bar"><span id="bar"></span></div>
+    </div>
+    <div class="panel">
+      <span class="label">שלוש שורות בכתב ידו של האדם</span>
+      <div class="refs" id="refs"></div>
+    </div>
+    <div class="panel">
+      <h2>איזו מהשתיים כתב אותו אדם?</h2>
+      <div class="choices">
+        <button class="choice" id="pick-A" data-side="A"><span class="mark">א</span><span class="slip"><img id="img-A" alt="שורה א"></span></button>
+        <button class="choice" id="pick-B" data-side="B"><span class="mark">ב</span><span class="slip"><img id="img-B" alt="שורה ב"></span></button>
+      </div>
+      <p class="muted">מקלדת: 1 לשורה א, 2 לשורה ב.</p>
+    </div>
+  </section>
+
+  <section class="panel" id="done" hidden>
+    <h2>תודה!</h2>
+    <p>העתיקו את הקוד הזה ושלחו אותו לעמרי. הוא מכיל רק את הבחירות שלכם.</p>
+    <textarea class="code" id="code" readonly></textarea>
+    <div class="row">
+      <button id="copy">העתקת הקוד</button>
+      <span class="muted" id="copied" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <p class="muted" id="error" role="alert" hidden></p>
+</main>
+
+<script>
+(() => {
+  const PER_JUDGE = 40;
+  const STORE = "nib-blind-v1";
+  const $ = (id) => document.getElementById(id);
+  let index = [];
+  let state = null; // {name, order: [trial ids], answers: {id: "A"|"B"}, pos}
+  const cache = new Map();
+
+  function save() {
+    try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) {}
+  }
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORE) || "null"); } catch (e) { return null; }
+  }
+
+  // The same name always draws the same 40 trials, so a judge can come back.
+  function seeded(text) {
+    let h = 2166136261;
+    for (const c of text) h = Math.imul(h ^ c.codePointAt(0), 16777619);
+    return () => {
+      h = Math.imul(h ^ (h >>> 15), 2246822507);
+      h = Math.imul(h ^ (h >>> 13), 3266489909);
+      return ((h ^= h >>> 16) >>> 0) / 4294967296;
+    };
+  }
+  function drawOrder(name) {
+    const random = seeded(name.trim().toLowerCase());
+    const ids = index.map((t) => t.trial);
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    return ids.slice(0, Math.min(PER_JUDGE, ids.length));
+  }
+
+  function trial(id) {
+    if (!cache.has(id)) {
+      const file = "trials/" + String(id).padStart(3, "0") + ".json";
+      cache.set(id, fetch(file).then((r) => {
+        if (!r.ok) throw new Error(file);
+        return r.json();
+      }));
+    }
+    return cache.get(id);
+  }
+
+  function fail(message) {
+    $("error").textContent = message;
+    $("error").hidden = false;
+  }
+
+  async function show() {
+    const { order, pos } = state;
+    if (pos >= order.length) return finish();
+    $("start").hidden = true;
+    $("trial").hidden = false;
+    $("count").textContent = "שאלה " + (pos + 1) + " מתוך " + order.length;
+    $("bar").style.width = (100 * pos / order.length) + "%";
+    $("back").hidden = pos === 0;
+    for (const side of ["A", "B"]) $("pick-" + side).disabled = true;
+    try {
+      const t = await trial(order[pos]);
+      $("refs").replaceChildren(...t.references.map((src) => {
+        const slip = document.createElement("div");
+        slip.className = "slip";
+        const img = document.createElement("img");
+        img.src = src;
+        img.alt = "שורה לדוגמה";
+        slip.append(img);
+        return slip;
+      }));
+      $("img-A").src = t.A;
+      $("img-B").src = t.B;
+      for (const side of ["A", "B"]) $("pick-" + side).disabled = false;
+      if (pos + 1 < order.length) trial(order[pos + 1]).catch(() => {});
+    } catch (e) {
+      fail("לא הצלחתי לטעון את השאלה. רעננו את הדף — ההתקדמות נשמרה.");
+    }
+  }
+
+  function choose(side) {
+    if ($("pick-A").disabled || $("trial").hidden) return;
+    state.answers[state.order[state.pos]] = side;
+    state.pos += 1;
+    save();
+    show();
+  }
+
+  function finish() {
+    $("trial").hidden = true;
+    $("start").hidden = true;
+    $("done").hidden = false;
+    const name = state.name.replace(/[;\n\r]/g, " ").trim();
+    const picks = state.order.filter((id) => state.answers[id]).map((id) => id + state.answers[id]);
+    $("code").value = "NIB1;" + name + ";" + picks.join(" ");
+  }
+
+  $("name").addEventListener("input", () => { $("go").disabled = !$("name").value.trim(); });
+  $("name").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("go").disabled) $("go").click(); });
+  $("go").addEventListener("click", () => {
+    const name = $("name").value.trim();
+    const saved = load();
+    state = saved && saved.name === name ? saved : { name, order: drawOrder(name), answers: {}, pos: 0 };
+    save();
+    show();
+  });
+  for (const side of ["A", "B"]) $("pick-" + side).addEventListener("click", () => choose(side));
+  $("back").addEventListener("click", () => {
+    if (state.pos > 0) { state.pos -= 1; save(); show(); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    if (e.key === "1") choose("A");
+    if (e.key === "2") choose("B");
+  });
+  $("copy").addEventListener("click", async () => {
+    $("code").select();
+    try {
+      await navigator.clipboard.writeText($("code").value);
+      $("copied").textContent = "הועתק.";
+    } catch (e) {
+      $("copied").textContent = "הקוד מסומן — העתיקו אותו ידנית (Ctrl+C).";
+    }
+  });
+
+  fetch("index.json")
+    .then((r) => { if (!r.ok) throw new Error("index"); return r.json(); })
+    .then((list) => {
+      index = list;
+      const saved = load();
+      if (saved && saved.name) {
+        $("name").value = saved.name;
+        $("go").disabled = false;
+        if (saved.pos >= saved.order.length) { state = saved; finish(); }
+      }
+    })
+    .catch(() => fail("לא הצלחתי לטעון את המבחן. רעננו את הדף."));
+})();
+</script>

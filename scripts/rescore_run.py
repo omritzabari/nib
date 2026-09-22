@@ -37,6 +37,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evaluate_generator as evaluation
 
 
+def saved_run(run: Path, pack, held_out, samples: int, style_refs: int, seed: int):
+    """A finished run's requests rebuilt exactly, in its order, with its saved lines.
+
+    Returns (requests, truths, generated, consumed). Raises ValueError when the
+    run's samples do not come from these requests.
+    """
+    requests, truths, consumed = evaluation.build_requests(
+        pack, held_out, style_refs, samples, seed
+    )
+    records = json.loads((run / "per_sample.json").read_text(encoding="utf-8"))
+    by_key = {truth.key: index for index, truth in enumerate(truths)}
+    missing = [record["key"] for record in records if record["key"] not in by_key]
+    if missing:
+        raise ValueError(
+            f"the run's samples do not come from these requests ({len(missing)} unknown keys, "
+            f"e.g. {missing[:2]}). Pass the run's own --samples and --style-refs."
+        )
+    order = [by_key[record["key"]] for record in records]
+    generated = [
+        cv2.imread(str(run / "generated" / f"{index:03d}.png"), cv2.IMREAD_GRAYSCALE)
+        for index in range(len(order))
+    ]
+    return [requests[i] for i in order], [truths[i] for i in order], generated, consumed
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run", type=Path, help="a finished evaluation's output directory")
@@ -57,29 +82,18 @@ def main(argv: list[str] | None = None) -> int:
 
     split = WriterSplit.load(repo / "configs" / "splits" / "cvl-writer-disjoint.json")
     held_out = [w for w in split.writers["test"] if w in pack.writers()]
-    requests, truths, consumed = evaluation.build_requests(
-        pack, held_out, args.style_refs, args.samples, int(cfg.seed)
-    )
-
-    records = json.loads((args.run / "per_sample.json").read_text(encoding="utf-8"))
-    by_key = {truth.key: index for index, truth in enumerate(truths)}
-    missing = [record["key"] for record in records if record["key"] not in by_key]
-    if missing:
-        print(
-            f"the run's samples do not come from these requests ({len(missing)} unknown keys, "
-            f"e.g. {missing[:2]}). Pass the run's own --samples and --style-refs."
+    try:
+        requests, truths, generated, consumed = saved_run(
+            args.run, pack, held_out, args.samples, args.style_refs, int(cfg.seed)
         )
+    except ValueError as error:
+        print(error)
         return 1
-    order = [by_key[record["key"]] for record in records]
-    requests = [requests[i] for i in order]
-    truths = [truths[i] for i in order]
-
-    generated = []
-    for index, request in enumerate(requests):
-        image = cv2.imread(str(args.run / "generated" / f"{index:03d}.png"), cv2.IMREAD_GRAYSCALE)
-        if args.calibrate:
-            image = calibrate(image, measure_hand(request.style_images, height=height))
-        generated.append(image)
+    if args.calibrate:
+        generated = [
+            calibrate(image, measure_hand(request.style_images, height=height))
+            for image, request in zip(generated, requests, strict=True)
+        ]
 
     out_dir = get_path(cfg, "outputs") / f"{args.run.name}_{args.tag}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)

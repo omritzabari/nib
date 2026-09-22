@@ -15,6 +15,25 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > HWD identity paired, with missing-a-word and CER as guardrails -- on 7s's 150 requests.
 > Detectability, retrieval, FID and training loss diagnose and never decide.
 >
+> **The blind test is built and published** -- the measure that decides "done".
+> `scripts/blind_test.py build <run>` turns a finished run into trials: three of the
+> writer's real lines, then the target text twice, real and generated (toned, as the
+> product), both cropped to their ink so the pack's framing cannot give it away, the
+> real side balanced half A, half B (`nib.engine.metrics.blind`). `key.json` stays on
+> this machine. The page (`scripts/blind_test.html`) is published privately at
+> https://claude.ai/artifact/26HkYgyRoJ82EwUaQDiDAK with 7s's 150 trials: each judge
+> types a name, gets 40 trials, and at the end copies one line of text
+> (`NIB1;<name>;<trial><A|B> ...`) to send back -- no account, no database, because a
+> page that stores answers is limited to the owner's organization. `blind_test.py
+> score <dir> codes.txt` gives the share of real lines picked, its interval, and the
+> verdict against CLAUDE.md's 60%. **Amri shares the link (Share menu) with three or
+> more judges.** Limits: 7s's lines predate the extra draws; Amri's own page is not in
+> it yet (its run kept only composite pairs -- the next `probe_writer.py` run should
+> save each line).
+>
+> **Eruku cannot be screened from what is saved:** `results/eval_eruku_lines` holds
+> 32 sample images, not the 300 lines. If the plan reaches it, it needs a run.
+>
 > **Done while 7v runs, three fixes from the review** (534 tests pass):
 >
 > - **Tone only.** `nib.inference.calibrate` now maps ink darkness and nothing else;

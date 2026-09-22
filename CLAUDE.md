@@ -22,8 +22,9 @@ Set because experiments kept circling: a story, an hour of GPU, one number, a ne
 **Done** is decided by people, not by a metric: a blind test. A judge sees three real
 lines of a writer, then two more -- one real, one generated, full lines -- and picks the
 real one. 50% means they cannot tell. **nib works when judges pick the real line in at
-most 60% of pairs**, over at least three writers who are not all Amri, 40 pairs each,
-and no generated line leaves a word out. Judges need not know the writer.
+most 60% of pairs**, from at least three judges, 40 pairs each, over writers who are not
+all Amri, while missing-a-word on the generated lines is no higher than on real ones
+(3.3%). Judges need not know the writer. The test: `scripts/blind_test.py` and its page.
 
 **Until then every change is judged on one scorecard,** always on the same benchmark:
 the 150 held-out CVL requests of cell 7s (`evaluate_generator.py --samples 150
