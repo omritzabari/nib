@@ -37,9 +37,11 @@ def test_it_can_only_add_ink_never_erase_it():
     assert (out.astype(int) <= line.astype(int) + 1).all()  # +1: rounding
 
 
-def test_the_weakening_stays_in_its_range_and_wanders_along_the_line():
-    field = repair.weakening((1, 1, 8, 120), np.random.default_rng(3))
+def test_the_breaking_cuts_pieces_out_and_leaves_the_rest_of_the_line():
+    """Emuru drops pieces of a stroke; it does not fade the whole line."""
+    field = repair.weakening((1, 1, 8, 400), np.random.default_rng(3))
 
-    assert field.shape == (1, 1, 8, 120) and field.dtype == np.float32
-    assert field.min() >= 0.15 and field.max() <= 1.1
-    assert field.std() > 0
+    assert field.shape == (1, 1, 8, 400) and field.dtype == np.float32
+    assert field.min() >= 0.0 and field.max() <= 1.0
+    assert (field >= repair.LEVEL[0]).mean() > 0.5, "most of the line survives"
+    assert (field <= repair.DEPTH[1]).any(), "and some of it is cut"

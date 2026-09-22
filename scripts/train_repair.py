@@ -27,10 +27,6 @@ from nib.data.split import WriterSplit
 from nib.engine.metrics import detectability
 from nib.models import repair
 
-INK_WEIGHT = 4.0
-"""Extra weight on the real line's ink pixels: most of a line is paper, and a
-loss dominated by paper would learn to leave everything alone."""
-
 REPORTED = ("pieces_per_100_columns", "ink_per_column", "stroke_width")
 
 
@@ -82,8 +78,11 @@ def main(argv: list[str] | None = None) -> int:
         target = torch.from_numpy(crops.astype(np.float32) / 255.0)[:, None].to(args.device)
         broken = repair.break_like_emuru(vae, target, np_rng)
         mended = network(broken)
-        weight = 1.0 + INK_WEIGHT * (target < detectability.INK / 255.0)
-        loss = (weight * (mended - target).abs()).mean()
+        # Plain L1: the network can only add ink, so nothing pushes it to erase and
+        # nothing should make false ink cheaper than missing ink. Weighting the real
+        # line's ink five times heavier is what fattened every stroke in the first
+        # attempt (PROGRESS.md, 2026-09-23).
+        loss = (mended - target).abs().mean()
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()

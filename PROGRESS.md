@@ -85,6 +85,25 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > Fails 1 or 2: one adjusted retry (weakening range, ink weight), then the route is
 > closed and the next lever is a generator that does not average -- Amri's call.
 >
+> **First attempt: failed criterion 1, and said exactly why** (T4, 26 minutes, loss
+> 0.130 -> 0.072 over 4,000 steps). On the kept-aside lines, real / broken / mended:
+> pieces per 100 columns 3.08 / 5.97 / **2.31**, ink per column 5.33 / 3.67 /
+> **7.09**, stroke width 1.91 / 1.91 / **2.74**. It did not join strokes, it fattened
+> them -- 43% thicker, where the criterion allowed 10%. Two causes, both mine:
+>
+> - **The breaking faded the whole line instead of cutting pieces out of it.** It
+>   left 69% of the ink where Emuru's lines keep 85%, so the network learned to put
+>   a third of the ink back. Now `weakening` keeps the line at 0.97-1.0 and cuts
+>   narrow pieces out of it (3-15 cuts per 100 latent columns, 2-3 slices wide, part
+>   of the height): measured on 320 kept-aside lines, 4.58 pieces per 100 columns at
+>   75% of the ink, against Emuru's 5.18 at 85%.
+> - **The loss made false ink five times cheaper than missing ink** (ink pixels
+>   weighted x5). The network can only add ink, so nothing pushes it to erase and
+>   nothing should tilt it to add: plain L1 now.
+>
+> The retry is the same cell 7w, unchanged otherwise. If it fails too, the route is
+> closed.
+>
 > **Bug fixed:** `hwd._load_hwd`'s DataLoader patch used `functools.partial`, which
 > the package's own `num_workers=1` overrode, so on Windows a worker still spawned
 > and died on `editdistance` -- a local HWD run hung. Now forced to 0; the test

@@ -9,11 +9,14 @@ stroke by 65%, and closing the image thickens too (PROGRESS.md, 2026-09-22).
 Mending a break without thickening needs to know what a stroke looks like.
 
 **How it learns.** Real lines by the training-split writers are broken the way
-Emuru breaks them, through Emuru's own VAE: each line's latents are drawn toward
-the latent of blank paper by a smooth random factor (:func:`weakening`), then
-decoded. At 0.85-1.0 the broken lines have 5.17 pieces per 100 columns where
-Emuru's generated lines have 5.18. The network sees the broken line and learns
-the real one.
+Emuru breaks them, through Emuru's own VAE: narrow cuts where the latents fall
+toward the latent of blank paper (:func:`weakening`), then decoded. **Cuts, not
+fading**, and the first attempt turned on that: drawing the whole line toward
+paper matched Emuru's 5.18 pieces per 100 columns only at 66% of a real line's
+ink, where Emuru's lines keep 85%, so the network learned to put back a third of
+the ink and thickened every stroke by 43% (PROGRESS.md, 2026-09-23). Cutting
+pieces out instead leaves 4.5 pieces per 100 columns at 82% of the ink. The
+network sees the cut line and learns the real one.
 
 **It may only add ink.** Its output is the darker of its prediction and its
 input, pixel by pixel, so it can join and darken a stroke but never erase or
@@ -26,23 +29,36 @@ from __future__ import annotations
 
 import numpy as np
 
-WEAKEN = (0.82, 1.0)
-"""The range each line's latents are drawn toward paper, from 1.0 (untouched)
-down. Chosen so the broken lines match Emuru's pieces per 100 columns (see the
-module docstring); lines near 1.0 teach the network to leave whole strokes alone."""
+LEVEL = (0.97, 1.0)
+"""How much of the ink survives away from the cuts. Near 1: Emuru's lines are not
+faded, they have pieces missing, and lines at 1.0 teach the network to leave a
+whole stroke alone."""
 
-SPREAD = (0.05, 0.3)
-"""How much the factor wanders along a line, so some places break and others not."""
+CUTS = (3.0, 15.0)
+"""Cuts per 100 columns, drawn per line: enough to span Emuru's own rate."""
+
+DEPTH = (0.05, 0.45)
+"""How little of the ink is left inside a cut."""
+
+CUT = (1, 3)
+"""A cut's width, in latent slices -- 8 to 24 pixels."""
 
 
 def weakening(shape: tuple[int, ...], rng: np.random.Generator) -> np.ndarray:
-    """A factor per latent position: a level for the line, a smooth wander along it."""
-    level = rng.uniform(*WEAKEN)
-    spread = rng.uniform(*SPREAD)
-    wander = rng.normal(0.0, spread, shape)
-    kernel = np.ones(3) / 3
-    wander = np.apply_along_axis(lambda row: np.convolve(row, kernel, mode="same"), -1, wander)
-    return np.clip(level + wander, 0.15, 1.1).astype(np.float32)
+    """A factor per latent position: near 1 over the line, with narrow cuts in it.
+
+    Each cut covers part of the line's height, so a stroke can be cut through while
+    the one above it survives -- which is what a break inside a letter looks like.
+    """
+    rows, columns = shape[-2], shape[-1]
+    field = np.full(shape, rng.uniform(*LEVEL), dtype=np.float32)
+    for _ in range(rng.poisson(rng.uniform(*CUTS) * columns / 100)):
+        left = rng.integers(0, columns)
+        top = rng.integers(0, rows)
+        field[..., top : top + rng.integers(1, rows), left : left + rng.integers(*CUT) + 1] = (
+            rng.uniform(*DEPTH)
+        )
+    return field
 
 
 VAE_ID = "blowing-up-groundhogs/emuru_vae"
