@@ -326,3 +326,56 @@ def test_lines_and_texts_must_pair_up():
 
     with pytest.raises(ValueError):
         finetune.train_writer(model, LINES, TEXTS[:1], FinetuneConfig(steps=1))
+
+
+# ---------------------------------------------------------------------------
+# The line in front kept clean, and the held-out loss that screens a recipe
+# ---------------------------------------------------------------------------
+
+
+def test_noise_by_part_leaves_the_line_in_front_clean_and_is_removed_after():
+    model = TinyEmuru()
+    seen = []
+    model.vae_to_t5.register_forward_hook(lambda _m, args, _out: seen.append(args[0].clone()))
+    slices = torch.zeros((2, 5, 8))
+
+    with finetune._noise_by_part(model, [3, 1], before=0.0, after=1.0):
+        model.vae_to_t5(slices)
+    model.vae_to_t5(slices)
+
+    noised, after = seen
+    assert (noised[0, :3] == 0).all() and (noised[0, 3:] != 0).all()
+    assert (noised[1, :1] == 0).all() and (noised[1, 1:] != 0).all()
+    assert (after == 0).all(), "the noise must not outlive the training step"
+
+
+def test_prefix_noise_needs_a_line_in_front():
+    with pytest.raises(ValueError, match="line in front"):
+        FinetuneConfig(prefix_noise=0.0)
+
+
+def test_training_with_a_clean_line_in_front_lowers_the_loss_and_reports_each_step():
+    model = TinyEmuru()
+    finetune.attach_lora(model, FinetuneConfig(dropout=0.0))
+    config = FinetuneConfig(
+        steps=80, learning_rate=1e-2, dropout=0.0, noise=0.1, prefix_noise=0.0, context="same"
+    )
+    steps = []
+
+    report = finetune.train_writer(model, LINES, TEXTS, config, after_step=steps.append)
+
+    assert steps == list(range(1, 81))
+    assert np.mean(report.losses[-8:]) < np.mean(report.losses[:8])
+
+
+def test_the_held_out_loss_repeats_and_leaves_the_training_mode_alone():
+    model = TinyEmuru()
+    finetune.attach_lora(model, FinetuneConfig())
+    pairs = [(LINES[0], TEXTS[0], LINES[1], TEXTS[1]), (LINES[1], TEXTS[1], LINES[0], TEXTS[0])]
+    model.train()
+
+    first = finetune.heldout_loss(model, pairs)
+    second = finetune.heldout_loss(model, pairs)
+
+    assert len(first) == 2 and first == second
+    assert model.training

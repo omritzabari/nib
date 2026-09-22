@@ -54,7 +54,8 @@ from __future__ import annotations
 import math
 import random
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 
 import cv2
@@ -114,12 +115,20 @@ class FinetuneConfig:
     """What precedes each training line: ``own`` -- nothing, as Emuru trained; or
     ``other`` -- a line by another writer, with the loss on the writer's line only."""
 
+    prefix_noise: float | None = None
+    """Noise on the line in front, when there is one. None: the same as ``noise``,
+    which is what Emuru's own forward does and what 7f and 7t trained with. At
+    generation the line in front is the user's own and clean, so 0.0 trains the
+    conditions generation meets."""
+
     max_grad_norm: float = 1.0
     seed: int = 0
 
     def __post_init__(self) -> None:
         if self.context not in CONTEXTS:
             raise ValueError(f"context must be one of {CONTEXTS}, got {self.context!r}")
+        if self.prefix_noise is not None and self.context == "own":
+            raise ValueError("prefix_noise needs a line in front: context 'other' or 'same'")
 
 
 DEFAULT_CONFIG = FinetuneConfig()
@@ -218,6 +227,67 @@ def masked_mse(predicted, target, starts: Sequence[int]):
     begin = torch.as_tensor(list(starts), device=error.device)
     mask = (columns[None, :] >= begin[:, None]).to(per_slice.dtype)
     return (per_slice * mask).sum() / mask.sum().clamp(min=1)
+
+
+@contextmanager
+def _noise_by_part(model, starts: Sequence[int], before: float, after: float):
+    """Noise the teacher-forced slices by part: ``before`` on the line in front of
+    each sample's start, ``after`` from it on.
+
+    Added where Emuru's own forward adds its noise -- at the input of
+    ``vae_to_t5`` -- so the rest of the model's forward runs exactly as released.
+    """
+    import torch
+
+    def hook(_module, args):
+        (sequence,) = args
+        columns = torch.arange(sequence.shape[1], device=sequence.device)
+        begin = torch.as_tensor(list(starts), device=sequence.device)
+        sigma = torch.where(columns[None, :] < begin[:, None], before, after).to(sequence.dtype)
+        return (sequence + torch.randn_like(sequence) * sigma[..., None],)
+
+    handle = model.vae_to_t5.register_forward_pre_hook(hook)
+    try:
+        yield
+    finally:
+        handle.remove()
+
+
+def heldout_loss(model, pairs: Sequence[tuple[np.ndarray, str, np.ndarray, str]], device="cpu"):
+    """Loss on each target line with a line in front, as at generation: nothing noised.
+
+    ``pairs`` holds (line in front, its text, target line, its text). Counted over the
+    target's own slices only, not the white after it. The random draws are fixed,
+    so two calls on the same model agree, and the caller's random state and
+    train/eval mode are left as they were -- it can run between training steps.
+    """
+    import torch
+
+    training = model.training
+    model.eval()
+    losses = []
+    try:
+        with torch.no_grad(), torch.random.fork_rng():
+            torch.manual_seed(0)
+            for before, before_text, line, text in pairs:
+                canvas, start = prepare_pair(before, line)
+                slices = math.ceil(_scaled(line, NATIVE_HEIGHT).shape[1] / PIXELS_PER_SLICE)
+                tokens = model.tokenizer(
+                    [f"{before_text} {text}"], return_tensors="pt", padding=True
+                )
+                _, predicted, target = model(
+                    torch.from_numpy(canvas[None]).to(device),
+                    input_ids=tokens.input_ids.to(device),
+                    attention_mask=tokens.attention_mask.to(device),
+                    noise=0.0,
+                )
+                error = ((predicted - target) ** 2).reshape(1, -1, predicted.shape[-1]).mean(dim=1)
+                losses.append(float(error[0, start : start + slices].mean()))
+    finally:
+        if training:
+            model.train()
+            model.vae.eval()
+    return losses
 
 
 def attach_lora(model, config: FinetuneConfig = DEFAULT_CONFIG, device=None) -> int:
@@ -320,13 +390,15 @@ def train_writer(
     device: str = "cpu",
     others: Sequence[tuple[np.ndarray, str]] | None = None,
     groups: Sequence[str] | None = None,
+    after_step: Callable[[int], None] | None = None,
 ) -> TrainReport:
     """Fine-tune the attached adapter on one writer's lines and their texts.
 
     ``others`` -- lines and texts by other writers -- is required when
     ``config.context`` is ``"other"``, and each step puts one of them before each
     of the writer's lines. Lines are drawn in shuffled passes, so every line is
-    seen before any repeats. The model is left in eval mode, ready to generate.
+    seen before any repeats. ``after_step`` is called with the number of steps
+    done after each one. The model is left in eval mode, ready to generate.
     """
     import torch
 
@@ -382,12 +454,19 @@ def train_writer(
 
         batch = torch.from_numpy(pad_batch(canvases)).to(device)
         tokens = model.tokenizer(batch_texts, return_tensors="pt", padding=True)
-        loss, predicted, target = model(
-            batch,
-            input_ids=tokens.input_ids.to(device),
-            attention_mask=tokens.attention_mask.to(device),
-            noise=config.noise,
+        by_part = starts is not None and config.prefix_noise is not None
+        noising = (
+            _noise_by_part(model, starts, config.prefix_noise, config.noise)
+            if by_part
+            else nullcontext()
         )
+        with noising:
+            loss, predicted, target = model(
+                batch,
+                input_ids=tokens.input_ids.to(device),
+                attention_mask=tokens.attention_mask.to(device),
+                noise=0.0 if by_part else config.noise,
+            )
         if starts is not None:
             loss = masked_mse(predicted, target, starts)
         if not torch.isfinite(loss):
@@ -398,6 +477,8 @@ def train_writer(
         torch.nn.utils.clip_grad_norm_(parameters, config.max_grad_norm)
         optimizer.step()
         losses.append(float(loss.detach()))
+        if after_step is not None:
+            after_step(step + 1)
 
     if str(device).startswith("cuda"):
         torch.cuda.synchronize()

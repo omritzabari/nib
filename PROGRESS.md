@@ -6,6 +6,77 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
+> ### A clean-eyes review, a success metric, and a screen before any more GPU — 2026-09-22
+>
+> **Run next: notebook cell 7v** (after cells 1–4): `scripts/screen_adaptation.py`,
+> ~30 minutes on a T4, nothing generated. Criterion and verdict below, printed by the
+> script. **Success is now defined in CLAUDE.md** ("How success is measured"): a blind
+> test by people decides done; until then every change is judged on one scorecard --
+> HWD identity paired, with missing-a-word and CER as guardrails -- on 7s's 150 requests.
+> Detectability, retrieval, FID and training loss diagnose and never decide.
+>
+> **Calibration costs identity -- measured locally, HWD included.** HWD runs on this
+> machine: the `hwd` package fails only on `editdistance` (no Windows wheel for Python
+> 3.13), which its scores never use. On 7e's 150 saved lines, one reference, paired by
+> writer; the control reproduces 7e exactly (69.8%, HWD 2.004, nearest 63.0%):
+>
+> | 7e's lines | identity | paired difference | HWD | nearest |
+> |---|---|---|---|---|
+> | as written | 69.8% [64.5, 75.2] | | 2.004 | 63.0% |
+> | size + width + tone | 63.0% | **-6.8 [-9.3, -4.2]** | 2.192 | 58.9% |
+> | size | 64.2% | -5.6 [-7.7, -3.5] | 2.213 | 52.1% |
+> | width + tone | 65.4% | -4.4 [-6.5, -2.2] | 2.057 | 57.5% |
+> | **tone** | **70.1%** | **+0.3 [-0.2, +0.8]** | 1.996 | 65.8% |
+>
+> Size is the tight crop that cost 4.7 points on 2026-09-16. So the geometry steps are
+> out and **tone alone stays** (identity neutral, detectable 99.3% -> 91.6%). Size on a
+> real page belongs to the page engine, in page units. 7u is superseded and removed
+> from the notebook; so is "7t, judged", whose answer could change no decision.
+>
+> **Teacher noise does not erase the line in front -- measured, and a hypothesis
+> refuted.** Released Emuru, 16 held-out writers, 32 target lines, loss on the target
+> only, teacher-forced, with a line by the same writer or by a training-split writer in
+> front. Benefit = 1 - same/other:
+>
+> | noise, front / target | same | other | benefit |
+> |---|---|---|---|
+> | 0 / 0, as at generation | 0.474 | 0.566 | +16.3% [12.5, 20.3] |
+> | 0.1 / 0.1, Emuru's own | 0.490 | 0.588 | +16.7% |
+> | 0.5 / 0.5, 7f and 7t | 0.787 | 0.887 | +11.3% [8.2, 14.6] |
+>
+> The absolute benefit is unchanged at 0.5 (0.092 -> 0.100): the noised line still
+> says whose hand it is. What noise 0.5 adds is 0.31 of loss -- 40% of what 7t's
+> training minimised is noise that does not exist at generation. 7f and 7t lost the
+> same 18 points with different lines in front, so under that recipe whose line is in
+> front does not decide; and 7o lost 18 at noise 0.1, so noise is not the only way.
+> Every Emuru training so far raised HWD distance (7d 2.22 -> 2.36, 7o 2.76, 7t 3.05,
+> 7f 3.26) while its training loss fell -- and none was ever checked on held-out lines.
+>
+> **7v, the screen -- criterion set before the run.** 12 of 7t's writers, their exact
+> lines, 150 steps; two recipes differing only in noise: 7t's, and *clean front* (line
+> in front clean via `FinetuneConfig.prefix_noise=0.0`, 0.1 on the line learned). Loss
+> on each writer's 4 unseen lines, a page line in front, nothing noised, steps
+> 0/50/100/150 (`finetune.heldout_loss`). Relative change, last step against step 0,
+> bootstrap over writers:
+> 1. 7t's recipe interval wholly below zero -> the yardstick is blind to identity ->
+>    **per-writer fine-tuning of Emuru is closed.**
+> 2. Else clean front <= -3% with interval below zero -> one generating run (7w, ~80
+>    minutes, criterion from CLAUDE.md's rule).
+> 3. Else -> **closed.** The product's adaptation is then the user's style lines, the
+>    quality control, the choice by hand and tone; work moves to the page engine, extra
+>    draws, and the blind test.
+>
+> Measured on CPU: a 7t training step is 14 s here, 0.5 s on a T4.
+>
+> **What the review found wrong in the way of working** (so it is not repeated): a
+> calibration declared a success without the metric that decides, and a false belief
+> that HWD needs Colab delaying the check; four image-processing attempts and a proposed
+> network aimed at a 10-statistic judge whose strongest features were pack framing;
+> 7t designed on an untested story, keeping the noise 7f's own write-up flagged; and
+> five training runs judged only by 75-110 minutes of generation, with nothing cheap
+> checked first. Also noted: same-writer training pairs are each scaled to their own
+> ink height, so the size of the line in front does not predict the target's.
+>
 > ### T42 step 3: broken strokes cannot be mended after the fact — 2026-09-21
 >
 > After calibration the lines still give themselves away at 74.9%, now mostly by

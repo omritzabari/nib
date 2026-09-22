@@ -15,6 +15,40 @@ Cutting a user's own letters out of their page and stitching new text from them 
 
 **Read `PROGRESS.md` first.** It holds the live task state and the exact next action.
 
+## How success is measured (Amri, 2026-09-22 — binding)
+
+Set because experiments kept circling: a story, an hour of GPU, one number, a new story.
+
+**Done** is decided by people, not by a metric: a blind test. A judge sees three real
+lines of a writer, then two more -- one real, one generated, full lines -- and picks the
+real one. 50% means they cannot tell. **nib works when judges pick the real line in at
+most 60% of pairs**, over at least three writers who are not all Amri, 40 pairs each,
+and no generated line leaves a word out. Judges need not know the writer.
+
+**Until then every change is judged on one scorecard,** always on the same benchmark:
+the 150 held-out CVL requests of cell 7s (`evaluate_generator.py --samples 150
+--style-refs 4 --candidates 4 --keep hand`), or `rescore_run.py` over saved lines when
+nothing needs generating again.
+
+| | what | baseline (7s) |
+|---|---|---|
+| **primary** | HWD identity, paired by writer against the current baseline | 65.2% |
+| guardrail | missing a word (TrOCR-base, teacher-forced) | 10.7% |
+| guardrail | CER (TrOCR-base) | 9.81% |
+
+**A change is kept only if** its paired identity interval is not wholly below zero,
+missing-a-word does not rise, CER rises by at most one point, **and** the one thing it
+was built to improve improves with its interval clear of zero -- named before the run.
+
+Rules that stop the circling:
+
+- The criterion is written in `PROGRESS.md` before the run, from the rule above. Nothing
+  decides after the fact.
+- Proxies diagnose and never decide: detectability, writer retrieval, FID, training loss.
+- A GPU run over 30 minutes needs a cheap screen that passed first.
+- A route that fails its criterion twice is closed. Reopening it is Amri's decision, on a
+  different kind of evidence.
+
 ## Who does what
 
 Amri (עמרי) is the architect: he decides, runs, and debugs. Claude writes the code.
