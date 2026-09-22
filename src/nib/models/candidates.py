@@ -76,6 +76,12 @@ class Verifier(Protocol):
 
 DEFAULT_CANDIDATES = 4
 
+EXTRA_DRAWS = 4
+"""Further draws when none of the first ones is acceptable, stopping at the first
+that is. In 7s, 19 of 150 requests had no acceptable draw of four and kept the
+least bad -- and one kept line in ten still left a word out. Costs time only on
+the lines that failed."""
+
 ACCEPT_CER = 0.5
 """A draw reading at or below this counts as readable.
 
@@ -396,6 +402,7 @@ class CandidateGenerator:
         omission_support: float = OMISSION_SUPPORT,
         width_band: tuple[float, float] = WIDTH_BAND,
         style_by: str = "width",
+        extra_draws: int = EXTRA_DRAWS,
     ) -> None:
         if candidates < 1:
             raise GeneratorError(f"need at least one candidate, got {candidates}")
@@ -409,6 +416,7 @@ class CandidateGenerator:
         self.width_band = width_band
         self.width_range = width_range
         self.style_by = style_by
+        self.extra_draws = extra_draws
         self.hand = hand
         self.selection = SelectionLog(mode="readable" if hand is None else "hand")
         # Over the images this wrapper returns, not over every draw: a rejected
@@ -443,7 +451,9 @@ class CandidateGenerator:
         empty_draws = 0
         used = 0
 
-        for attempt in range(self.candidates):
+        for attempt in range(self.candidates + self.extra_draws):
+            if attempt >= self.candidates and any(self._readable(d) for d in draws):
+                break
             used += 1
             draw = self._draw(request, order[attempt % len(order)])
             if draw is None:

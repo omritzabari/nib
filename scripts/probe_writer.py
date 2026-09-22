@@ -41,6 +41,7 @@ from nib.data.preprocessing import normalise_line, normalise_page
 from nib.data.segmentation import split_lines
 from nib.engine.metrics import bootstrap
 from nib.engine.metrics import cer as cer_mod
+from nib.inference.calibrate import calibrate, measure_hand
 from nib.models.generator import EmptyGeneration, GenerationRequest
 
 
@@ -172,11 +173,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     style_images = [lines[n - 1] for n in page]
     style_texts = [texts[n - 1] for n in page]
+    # The model writes in its own flat ink; the page's own ink is imposed on it.
+    ink = measure_hand(style_images, height)
 
     def write(text: str) -> np.ndarray | None:
         request = GenerationRequest(text=text, style_images=style_images, style_texts=style_texts)
         try:
-            return generator.generate([request])[0]
+            return calibrate(generator.generate([request])[0], ink)
         except EmptyGeneration:
             return None
 

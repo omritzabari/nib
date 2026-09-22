@@ -66,15 +66,20 @@ distance, predates it.
 at package level, so it drags in gudhi, matplotlib, tiktoken and more; and it
 depends on `editdistance`, which has no wheel for Python 3.13 on Windows. It is
 therefore an optional extra, and everything here degrades to "not measured"
-rather than failing when it is absent. The network sits behind
+rather than failing when it is absent. Only its IAM loader uses `editdistance`,
+so :func:`_load_hwd` stands a blank module in for it, and the score runs on a
+Windows laptop too. The network sits behind
 :class:`Extractor`, so the arithmetic is tested without it.
 """
 
 from __future__ import annotations
 
+import os
 import random
 import shutil
+import sys
 import tempfile
+import types
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -102,10 +107,33 @@ alike, so the comparison between them is untouched -- and counted. A mean over
 two or three reference lines adds more noise than the writer adds evidence."""
 
 
+def _load_hwd() -> None:
+    """Import the package, past the two things that stop it off Colab.
+
+    ``editdistance`` has no Windows wheel for Python 3.13 and is used only by the
+    package's IAM loader, never by the score, so a blank module stands in. And on
+    Windows the package's DataLoader worker re-runs the calling script -- the first
+    local attempt hung for 13 minutes -- so it loads in the calling process.
+    """
+    try:
+        import editdistance  # noqa: F401
+    except ImportError:
+        sys.modules["editdistance"] = types.ModuleType("editdistance")
+    import hwd.scores  # noqa: F401
+
+    if os.name == "nt":
+        import functools
+
+        import hwd.metrics.backbones as backbones
+        import torch.utils.data
+
+        backbones.DataLoader = functools.partial(torch.utils.data.DataLoader, num_workers=0)
+
+
 def available() -> bool:
     """Whether the optional package is installed and importable."""
     try:
-        import hwd.scores  # noqa: F401
+        _load_hwd()
     except Exception:
         return False
     return True
@@ -359,6 +387,7 @@ class VggExtractor:
     """
 
     def __init__(self, height: int = DEFAULT_HEIGHT) -> None:
+        _load_hwd()
         from hwd.scores import HWDScore
 
         self._score = HWDScore(height=height)

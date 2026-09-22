@@ -7,6 +7,7 @@ enough to check that the right things are compared with the right things.
 
 from __future__ import annotations
 
+import importlib.util
 import math
 from collections import Counter
 
@@ -189,6 +190,14 @@ def test_without_the_package_it_reports_not_measured(monkeypatch):
 
     assert hwd.measure([], [], [], [], [], []) is None
     assert "not measured" in hwd.describe(None)
+
+
+def test_where_the_package_is_installed_it_loads_even_without_editdistance():
+    """editdistance has no Windows wheel for Python 3.13; the score never uses it."""
+    if importlib.util.find_spec("hwd") is None:
+        pytest.skip("the hwd extra is not installed")
+
+    assert hwd.available()
 
 
 def test_position_is_undefined_when_the_typeface_does_not_score_worse_than_real():

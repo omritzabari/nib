@@ -15,6 +15,24 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > HWD identity paired, with missing-a-word and CER as guardrails -- on 7s's 150 requests.
 > Detectability, retrieval, FID and training loss diagnose and never decide.
 >
+> **Done while 7v runs, three fixes from the review** (534 tests pass):
+>
+> - **Tone only.** `nib.inference.calibrate` now maps ink darkness and nothing else;
+>   size and width are deleted (they cost 4-7 identity points, table below). Verified
+>   pixel-identical to the "tone" row on all 150 of 7e's lines, so its +0.3 [-0.2,
+>   +0.8] applies. **Wired into the product:** `probe_writer.py` puts every line it
+>   writes in the ink of the user's page. `rescore_run.py --calibrate` means tone.
+> - **HWD runs locally.** `hwd._load_hwd` stands a blank module in for
+>   `editdistance` and loads the package's DataLoader without a worker on Windows.
+>   `hwd.available()` is True on this machine; a test fails without the fix.
+>   Local `evaluate_generator.py` runs now compute HWD on CPU (a few minutes).
+> - **Extra draws when nothing passes.** `CandidateGenerator(extra_draws=4)`: if none
+>   of the first draws is acceptable, up to four more, stopping at the first that is
+>   (7s: 19 of 150 requests had none). Default on, so the product and every new run
+>   get it; `evaluate_generator.py --extra-draws 0` reproduces runs before today.
+>   Measured on the scorecard -- missing-a-word must fall -- the next time the
+>   benchmark runs for another reason; not worth a run of its own.
+>
 > **Calibration costs identity -- measured locally, HWD included.** HWD runs on this
 > machine: the `hwd` package fails only on `editdistance` (no Windows wheel for Python
 > 3.13), which its scores never use. On 7e's 150 saved lines, one reference, paired by

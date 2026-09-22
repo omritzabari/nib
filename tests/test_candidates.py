@@ -194,7 +194,9 @@ def test_an_unreadable_draw_is_redrawn_and_the_readable_one_kept():
 
 def test_when_nothing_is_readable_the_best_of_all_draws_is_kept_and_counted():
     base = ScriptedGenerator(["zzzzzzzzzz", "hellozzzzzz", "zzzzzzzzzzzz"])
-    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=3, accept_cer=0.1)
+    wrapper = CandidateGenerator(
+        base, ScriptedReader(), candidates=3, accept_cer=0.1, extra_draws=0
+    )
 
     (image,) = wrapper.generate([_request()])
 
@@ -204,10 +206,35 @@ def test_when_nothing_is_readable_the_best_of_all_draws_is_kept_and_counted():
     assert wrapper.selection.draws_per_request == 3
 
 
+def test_when_nothing_passes_it_draws_again_and_stops_at_the_first_that_does():
+    """7s: 19 of 150 requests had no acceptable draw of four and kept the least bad."""
+    base = ScriptedGenerator(["zzzzzzzzzz", "zzzzzzzzzz", "zzzzzzzzzz", "hello world", "unused"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, extra_draws=4)
+
+    (image,) = wrapper.generate([_request()])
+
+    assert len(base.calls) == 4
+    assert int(image[30, 10]) == 4
+    assert wrapper.selection.none_accepted == 0
+
+
+def test_by_hand_the_extra_draws_stop_at_the_first_acceptable_one():
+    base = ScriptedGenerator(["zzzzzzzzzz", "zzzzzzzzzz", "hello world", "hello world"])
+    hand = HandEmbedder({3: [1.0, 0.0], 4: [1.0, 0.0]})
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, hand=hand, extra_draws=4)
+
+    (image,) = wrapper.generate([_request()])
+
+    assert len(base.calls) == 3
+    assert int(image[30, 10]) == 3
+
+
 def test_every_draw_carries_exactly_one_style_line_with_its_own_text():
     """Two lines joined side by side broke Emuru's text; a draw never joins."""
     base = ScriptedGenerator(["bad", "bad", "bad"])
-    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=3, accept_cer=0.0)
+    wrapper = CandidateGenerator(
+        base, ScriptedReader(), candidates=3, accept_cer=0.0, extra_draws=0
+    )
 
     wrapper.generate([_request(widths=(300, 820, 600))])
 
@@ -221,7 +248,9 @@ def test_every_draw_carries_exactly_one_style_line_with_its_own_text():
 
 def test_draws_cycle_through_the_style_lines_when_there_are_more_draws_than_lines():
     base = ScriptedGenerator(["bad"] * 4)
-    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4, accept_cer=0.0)
+    wrapper = CandidateGenerator(
+        base, ScriptedReader(), candidates=4, accept_cer=0.0, extra_draws=0
+    )
 
     wrapper.generate([_request(widths=(800, 700))])
 
@@ -243,7 +272,7 @@ def test_an_empty_draw_costs_a_draw_and_does_not_end_the_request():
 
 def test_a_request_with_no_image_from_any_draw_is_an_empty_generation():
     base = ScriptedGenerator([None, None])
-    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2)
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, extra_draws=0)
 
     with pytest.raises(EmptyGeneration):
         wrapper.generate([_request(text="lost line")])
@@ -328,7 +357,7 @@ def test_when_every_draw_writes_beyond_the_text_the_best_read_is_kept_and_counte
     # The first reads at 35% CER and writes on; the second stays inside the text
     # and reads at 59%. Neither is acceptable, and the better-read one is kept.
     base = ScriptedGenerator(["hello world again te Te", "zzzzz zzzzz again"])
-    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2)
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, extra_draws=0)
 
     (image,) = wrapper.generate([_request(text="hello world again")])
 
@@ -404,7 +433,9 @@ def test_when_nothing_passes_a_draw_with_every_word_beats_one_missing_a_word():
     # characters after them: CER 47%, overrun 5. Neither is acceptable.
     base = ScriptedGenerator(["hello again", "hello world again te Te x"])
     verifier = ScriptedVerifier({1: 20.0, 2: -10.0})
-    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, verifier=verifier)
+    wrapper = CandidateGenerator(
+        base, ScriptedReader(), candidates=2, verifier=verifier, extra_draws=0
+    )
 
     (image,) = wrapper.generate([_request(text="hello world again")])
 
@@ -555,7 +586,9 @@ def test_by_hand_a_draw_that_writes_beyond_the_text_is_never_kept_however_close(
 def test_by_hand_with_nothing_readable_the_best_read_is_kept():
     base = ScriptedGenerator(["zzzzzzzzzz", "hellozzzzzz"])
     hand = HandEmbedder({1: [1.0, 0.0], 2: [0.0, 1.0]})
-    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, accept_cer=0.1, hand=hand)
+    wrapper = CandidateGenerator(
+        base, ScriptedReader(), candidates=2, accept_cer=0.1, hand=hand, extra_draws=0
+    )
 
     (image,) = wrapper.generate([_request()])
 

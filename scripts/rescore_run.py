@@ -1,7 +1,7 @@
 """Score a finished run's lines again -- changed after the fact -- without generating.
 
     python scripts/rescore_run.py outputs/eval_emuru_lines_refs4_cand4_byhand_omission \\
-        --calibrate --tag calibrated --device cuda
+        --calibrate --tag toned --device cuda
 
 Generating 150 lines in ``hand`` mode costs about two hours of GPU. Anything done to
 the lines *after* the model wrote them -- fitting them to each writer's page is the
@@ -10,8 +10,8 @@ evaluation has, in minutes. That is what this does:
 
 1. rebuild the run's requests exactly -- same held-out writers, same seed, same
    count and style lines -- and check them against the run's ``per_sample.json``;
-2. read the run's saved lines and, with ``--calibrate``, fit each to its request's
-   own style lines (:mod:`nib.inference.calibrate`);
+2. read the run's saved lines and, with ``--calibrate``, fit each one's ink to its
+   request's own style lines (:mod:`nib.inference.calibrate`);
 3. save them as a run of their own and score them with ``evaluate_generator``'s
    metrics, unchanged.
 
@@ -42,10 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("run", type=Path, help="a finished evaluation's output directory")
     parser.add_argument("--samples", type=int, default=150, help="as the run was made")
     parser.add_argument("--style-refs", type=int, default=4, help="as the run was made")
-    parser.add_argument("--calibrate", action="store_true", help="fit each line to its hand")
-    parser.add_argument("--no-size", action="store_true", help="calibrate without size")
-    parser.add_argument("--no-width", action="store_true", help="calibrate without width")
-    parser.add_argument("--no-tone", action="store_true", help="calibrate without tone")
+    parser.add_argument("--calibrate", action="store_true", help="fit each line's ink to its hand")
     parser.add_argument("--tag", required=True, help="appended to the run's name for the new one")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--cer-samples", type=int, default=0, help="as in evaluate_generator")
@@ -81,15 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     for index, request in enumerate(requests):
         image = cv2.imread(str(args.run / "generated" / f"{index:03d}.png"), cv2.IMREAD_GRAYSCALE)
         if args.calibrate:
-            hand = measure_hand(request.style_images, request.style_texts, height=height)
-            image = calibrate(
-                image,
-                request.text,
-                hand,
-                size=not args.no_size,
-                width=not args.no_width,
-                tone=not args.no_tone,
-            )
+            image = calibrate(image, measure_hand(request.style_images, height=height))
         generated.append(image)
 
     out_dir = get_path(cfg, "outputs") / f"{args.run.name}_{args.tag}"

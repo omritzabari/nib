@@ -333,6 +333,13 @@ def main(argv: list[str] | None = None) -> int:
         "See nib.models.candidates.OMISSION_SUPPORT.",
     )
     parser.add_argument(
+        "--extra-draws",
+        type=int,
+        default=None,
+        help="further draws when none of the first is acceptable (default: "
+        "nib.models.candidates.EXTRA_DRAWS). '0' reproduces runs before 2026-09-22.",
+    )
+    parser.add_argument(
         "--width-band",
         type=float,
         nargs=2,
@@ -491,6 +498,9 @@ def main(argv: list[str] | None = None) -> int:
             ),
             hand=hand,
             style_by=args.style_by,
+            extra_draws=(
+                candidates_mod.EXTRA_DRAWS if args.extra_draws is None else args.extra_draws
+            ),
         )
     print(f"  {generator.name}, output height {generator.output_height}px")
 
