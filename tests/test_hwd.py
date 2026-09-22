@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import os
 from collections import Counter
 
 import numpy as np
@@ -198,6 +199,11 @@ def test_where_the_package_is_installed_it_loads_even_without_editdistance():
         pytest.skip("the hwd extra is not installed")
 
     assert hwd.available()
+    if os.name == "nt":
+        import hwd.metrics.backbones as backbones
+
+        # The package asks for a worker; on Windows it would re-run the caller.
+        assert backbones.DataLoader([1, 2], num_workers=1).num_workers == 0
 
 
 def test_position_is_undefined_when_the_typeface_does_not_score_worse_than_real():

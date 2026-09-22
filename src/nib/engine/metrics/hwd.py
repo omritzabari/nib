@@ -122,12 +122,14 @@ def _load_hwd() -> None:
     import hwd.scores  # noqa: F401
 
     if os.name == "nt":
-        import functools
-
         import hwd.metrics.backbones as backbones
         import torch.utils.data
 
-        backbones.DataLoader = functools.partial(torch.utils.data.DataLoader, num_workers=0)
+        def in_process(*args, **kwargs):
+            # The package passes num_workers=1 itself, so it is overridden, not defaulted.
+            return torch.utils.data.DataLoader(*args, **{**kwargs, "num_workers": 0})
+
+        backbones.DataLoader = in_process
 
 
 def available() -> bool:

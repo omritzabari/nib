@@ -8,6 +8,13 @@ is imposed on what the model wrote for them, quantile by quantile. Measured on
 the detectability judge falls from 99.3% to 91.6%, and HWD identity is unmoved
 (+0.3 points [-0.2, +0.8], paired by writer).
 
+**And the paper made white.** Real lines are on paper normalised to white; the
+model's paper carries a faint grey haze -- 8.4% of paper pixels beyond 2 px of any
+stroke on 7s's lines, against 0.07% on real ones -- which people see at once.
+Everything farther than :data:`PAPER_REACH` from the ink is set to white; strokes
+and their soft edges are untouched. On 7s's 150 lines, tone and paper together:
+identity +0.5 points [0.0, +1.0] paired.
+
 **Tone only, on purpose.** This module also matched size (crop to the ink, scale
 to the hand's ink height) and width (squeeze to the hand's cost per character).
 Together they took the judge to 74.9% and **cost 6.8 identity points [-9.3,
@@ -27,6 +34,9 @@ INK = 160
 """A pixel darker than this is ink -- the threshold the judge uses."""
 
 PAPER = 255
+
+PAPER_REACH = 2
+"""Pixels farther than this from any ink are paper, and are made white."""
 
 QUANTILES = np.linspace(0.0, 1.0, 21)
 """Where the ink's darkness is sampled, for the tone map."""
@@ -56,17 +66,21 @@ def measure_hand(style_images: Sequence[np.ndarray], height: int = 64) -> Hand:
 
 
 def calibrate(image: np.ndarray, hand: Hand) -> np.ndarray:
-    """``image`` -- a line the model wrote -- in the ink of ``hand``.
+    """``image`` -- a line the model wrote -- in the ink of ``hand``, on white paper.
 
-    Paper stays paper and the pale fringe of a stroke stays pale: the map runs
-    from no darkness at all, through the ink's own quantiles, to the hand's. A
-    line with no ink comes back as it was.
+    The pale fringe of a stroke stays pale: the map runs from no darkness at all,
+    through the ink's own quantiles, to the hand's. A line with no ink comes back
+    as it was.
     """
     gray = _at_height(image, hand.height)
-    darkness = PAPER - gray.astype(np.float64)
-    ink = darkness[gray < INK]
-    if ink.size == 0:
+    strokes = gray < INK
+    if not strokes.any():
         return gray
+    reach = 2 * PAPER_REACH + 1
+    near = cv2.dilate(strokes.astype(np.uint8), np.ones((reach, reach), np.uint8)) > 0
+    gray = np.where(near, gray, PAPER).astype(np.uint8)
+    darkness = PAPER - gray.astype(np.float64)
+    ink = darkness[strokes]
     source = np.quantile(ink, QUANTILES)
     target = hand.darkness
     # Strictly increasing, or interpolation is undefined where the ink is flat.

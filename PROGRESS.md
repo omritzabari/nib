@@ -6,6 +6,66 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
+> ### 7v closed per-writer fine-tuning of Emuru; people see broken strokes — 2026-09-22
+>
+> **7v ran (T4, 85 s a writer): CLOSED, by the rule set before the run.** Held-out
+> loss on each writer's 4 unseen lines, a page line in front, nothing noised, 12 of
+> 7t's writers:
+>
+> | recipe | step 0 | 50 | 100 | 150 | change |
+> |---|---|---|---|---|---|
+> | 7t's (noise 0.5 everywhere) | 0.4581 | 0.4070 | 0.3959 | 0.3850 | **-15.7% [-17.8, -13.4]** |
+> | clean front (0 in front, 0.1 on the line) | 0.4581 | 0.3692 | 0.3474 | 0.3395 | -25.7% [-28.0, -23.4] |
+>
+> 7t's recipe lowers the loss on unseen lines by 16% -- and cost 18 identity points
+> when it generated. So this loss cannot see identity, no cheap screen exists, and
+> **per-writer fine-tuning of Emuru is closed** (CLAUDE.md: reopening is Amri's call,
+> on a different kind of evidence). Clean front is better on this yardstick, which by
+> the same token says nothing about its identity. Not reopened.
+>
+> **Amri opened the blind-test page: the generated line is recognisable without
+> looking at the writer at all** -- strokes not whole, full of small dots, ink
+> missing or erased. Not sent to judges until that is fixed. Measured on 7s's 150
+> toned lines against their real targets, as shown on the page:
+>
+> | | real | generated |
+> |---|---|---|
+> | tiny ink specks (<= 6 px) per 100 columns | 0.42 | 1.15 |
+> | paper not pure white, beyond 2 px of any stroke | 0.07% | 8.4% |
+> | breaks inside letters, at 4x | rare | in every line |
+>
+> Three defects: grey haze on the paper (the pack normalises real paper to white,
+> the model's paper is not); specks; and broken strokes, the model's own and the main
+> one.
+>
+> **Haze: fixed.** `calibrate` now makes white everything beyond 2 px of any stroke.
+> On 7s's 150 lines, paired, one reference (the control reproduces 7s's 65.2%):
+> tone +0.7 [+0.2, +1.1], tone and paper +0.5 [0.0, +1.0]; the judge 98.3% -> 90.0%
+> either way (it has no haze statistic; people do).
+>
+> **Broken strokes are in the model's own predictions -- measured.** Teacher-forced
+> on 20 real held-out lines, a same-writer line in front, decoding the predictions
+> for the target's slices (scratch `tf_decode`, CPU):
+>
+> | | pieces / 100 columns | ink px / column |
+> |---|---|---|
+> | real | 3.34 | 5.05 |
+> | the VAE's reconstruction | 3.81 | 4.95 |
+> | Emuru's one-step predictions | **8.09** | 4.34 |
+> | predictions pushed from paper, x1.3 | 3.20 | **8.33** |
+>
+> The VAE and the pipeline add almost nothing; the breaks are the regression's
+> average of what it is unsure of. Scaling the predicted latents away from paper
+> closes them but thickens every stroke by 65% -- the same trade that sank
+> morphological closing. No uniform fix exists; what can mend breaks without
+> thickening has to know what a stroke looks like: a learned repair. **Awaiting
+> Amri's go on it.**
+>
+> **Bug fixed:** `hwd._load_hwd`'s DataLoader patch used `functools.partial`, which
+> the package's own `num_workers=1` overrode, so on Windows a worker still spawned
+> and died on `editdistance` -- a local HWD run hung. Now forced to 0; the test
+> asserts it and fails on the old code.
+>
 > ### A clean-eyes review, a success metric, and a screen before any more GPU — 2026-09-22
 >
 > **Run next: notebook cell 7v** (after cells 1–4): `scripts/screen_adaptation.py`,

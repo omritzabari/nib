@@ -74,3 +74,14 @@ def test_a_hand_needs_something_to_measure():
     blank = np.full((64, 300), 255, dtype=np.uint8)
     with pytest.raises(ValueError, match="no style line"):
         measure_hand([blank])
+
+
+def test_haze_on_the_paper_is_made_white_and_the_stroke_edges_kept():
+    written = _line(20, 44, tone=(100, 150))
+    written[5, 300:320] = 235  # a faint grey mark, far from any stroke
+    written[19, 12:20] = 200  # a stroke's soft edge, touching it
+
+    out = calibrate(written, _hand())
+
+    assert (out[5, 300:320] == 255).all()
+    assert (out[19, 12:20] < 255).all()
