@@ -68,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--samples", type=int, default=150, help="as the run was made")
     parser.add_argument("--style-refs", type=int, default=4, help="as the run was made")
     parser.add_argument("--calibrate", action="store_true", help="fit each line's ink to its hand")
+    parser.add_argument(
+        "--repair", type=Path, default=None, help="mend strokes with these weights, first"
+    )
     parser.add_argument("--tag", required=True, help="appended to the run's name for the new one")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--cer-samples", type=int, default=0, help="as in evaluate_generator")
@@ -89,6 +92,11 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         print(error)
         return 1
+    if args.repair is not None:
+        from nib.models import repair
+
+        network = repair.load(args.repair)
+        generated = [repair.repair(network, image) for image in generated]
     if args.calibrate:
         generated = [
             calibrate(image, measure_hand(request.style_images, height=height))
@@ -115,7 +123,11 @@ def main(argv: list[str] | None = None) -> int:
         args.cer_samples,
         consumed,
     )
-    results |= {"rescored_from": args.run.name, "calibrated": args.calibrate}
+    results |= {
+        "rescored_from": args.run.name,
+        "calibrated": args.calibrate,
+        "repaired_with": None if args.repair is None else str(args.repair),
+    }
     (out_dir / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"\nresults            {out_dir / 'results.json'}")
     pack.close()

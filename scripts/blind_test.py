@@ -54,6 +54,11 @@ def build(args, cfg, repo: Path) -> int:
         args.run, pack, held_out, args.samples, args.style_refs, int(cfg.seed)
     )
     sides = blind.assign_sides(len(truths), int(cfg.seed))
+    if args.repair is not None:
+        from nib.models import repair
+
+        network = repair.load(args.repair)
+        generated = [repair.repair(network, image) for image in generated]
 
     trials, targets = [], {}
     for trial, (request, truth, image, side) in enumerate(
@@ -113,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     make.add_argument("--samples", type=int, default=150, help="as the run was made")
     make.add_argument("--style-refs", type=int, default=4, help="as the run was made")
     make.add_argument("--out", type=Path, default=None)
+    make.add_argument("--repair", type=Path, default=None, help="mend strokes with these weights")
     judge = commands.add_parser("score", help="the judges' answers against the key")
     judge.add_argument("test", type=Path, help="the directory build wrote")
     judge.add_argument("answers", type=Path, help="a text file of the judges' codes, one a line")

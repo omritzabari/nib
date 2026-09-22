@@ -58,8 +58,32 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > average of what it is unsure of. Scaling the predicted latents away from paper
 > closes them but thickens every stroke by 65% -- the same trade that sank
 > morphological closing. No uniform fix exists; what can mend breaks without
-> thickening has to know what a stroke looks like: a learned repair. **Awaiting
-> Amri's go on it.**
+> thickening has to know what a stroke looks like: a learned repair.
+>
+> **Built (Amri's go): `nib.models.repair`, run next as notebook cell 7w** (~15
+> minutes on a T4, weights to Drive `results/repair/repair.pt`). A U-Net of 472k
+> parameters whose output is the darker of its prediction and its input, so it can
+> only add ink -- join a stroke, never erase or move one. Trained on crops of real
+> lines by the 216 training-split writers, each broken the way Emuru breaks them
+> *through Emuru's own VAE*: latents drawn toward the latent of blank paper by a
+> smooth random factor (`weakening`, 0.82-1.0), then decoded. Checked on CPU first:
+> at 0.85-1.0 the broken lines have 5.17 pieces per 100 columns, Emuru's generated
+> lines 5.18 (real 3.08). `scripts/train_repair.py` ends by comparing real, broken
+> and mended on 320 kept-aside lines; `rescore_run.py --repair` and `blind_test.py
+> build --repair` apply it before the ink calibration. Smoked end to end on CPU (3
+> steps). Not in the product path until it passes.
+>
+> **Criterion, set before the run** (CLAUDE.md's rule; baseline 7s + tone + paper):
+> 1. On the kept-aside lines, mended pieces per 100 columns nearer the real than the
+>    broken, with ink per column at most 15% and stroke width at most 10% above the
+>    real (no thickening) -- a diagnostic, printed by the script.
+> 2. On 7s's 150 lines, locally: identity paired not wholly below zero, missing a
+>    word not higher, CER at most one point higher.
+> 3. Then the page is rebuilt with the mended lines and Amri, looking at A and B
+>    only, 20 trials: he may pick the real line in at most 14 (70%). Only then judges.
+>
+> Fails 1 or 2: one adjusted retry (weakening range, ink weight), then the route is
+> closed and the next lever is a generator that does not average -- Amri's call.
 >
 > **Bug fixed:** `hwd._load_hwd`'s DataLoader patch used `functools.partial`, which
 > the package's own `num_workers=1` overrode, so on Windows a worker still spawned
