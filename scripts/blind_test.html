@@ -95,6 +95,14 @@
     padding: 8px 20px;
   }
   button.quiet { background: transparent; color: var(--accent); }
+  .send {
+    font-weight: 700;
+    text-decoration: none;
+    border-radius: 4px;
+    background: var(--accent);
+    color: var(--surface);
+    padding: 10px 24px;
+  }
   button:disabled { opacity: 0.45; cursor: default; }
   :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
@@ -174,7 +182,7 @@
       <li>מתחתן אותו משפט פעמיים: פעם אחת בכתב ידו של אותו אדם, ופעם אחת כתוב על ידי מחשב שמחקה אותו.</li>
       <li>בחרו את השורה שלדעתכם כתב האדם עצמו. אם אינכם בטוחים — נחשו. אין משוב באמצע.</li>
     </ol>
-    <p class="muted">40 שאלות, כעשר דקות. בסוף תקבלו קוד קצר לשלוח בחזרה.</p>
+    <p class="muted">20 שאלות, כחמש דקות. בסוף לוחצים על כפתור אחד ששולח את התשובות בוואטסאפ.</p>
     <div class="row">
       <label class="label" for="name">השם שלכם</label>
       <input type="text" id="name" autocomplete="name" maxlength="40" placeholder="למשל: דנה">
@@ -206,12 +214,14 @@
 
   <section class="panel" id="done" hidden>
     <h2>תודה!</h2>
-    <p>העתיקו את הקוד הזה ושלחו אותו לעמרי. הוא מכיל רק את הבחירות שלכם.</p>
-    <textarea class="code" id="code" readonly></textarea>
+    <p>נשאר רק לשלוח את התשובות. לחיצה אחת, וואטסאפ נפתח עם ההודעה מוכנה.</p>
     <div class="row">
-      <button id="copy">העתקת הקוד</button>
+      <a id="send" class="send" href="#" target="_blank" rel="noopener">שליחה בוואטסאפ</a>
+      <button class="quiet" id="copy">העתקה במקום</button>
       <span class="muted" id="copied" aria-live="polite"></span>
     </div>
+    <p class="muted">אם משהו לא נפתח, אפשר להעתיק את השורה הזאת ולשלוח בכל דרך:</p>
+    <textarea class="code" id="code" readonly></textarea>
   </section>
 
   <p class="muted" id="error" role="alert" hidden></p>
@@ -219,7 +229,10 @@
 
 <script>
 (() => {
-  const PER_JUDGE = 40;
+  const PER_JUDGE = 20;
+  // Fill in a phone number in international digits (e.g. "9725...") and the send
+  // button opens that chat; empty, WhatsApp asks the judge whom to send to.
+  const SEND_TO = "";
   const STORE = "nib-blind-v1";
   const $ = (id) => document.getElementById(id);
   let index = [];
@@ -312,7 +325,9 @@
     $("done").hidden = false;
     const name = state.name.replace(/[;\n\r]/g, " ").trim();
     const picks = state.order.filter((id) => state.answers[id]).map((id) => id + state.answers[id]);
-    $("code").value = "NIB1;" + name + ";" + picks.join(" ");
+    const code = "NIB1;" + name + ";" + picks.join(" ");
+    $("code").value = code;
+    $("send").href = "https://wa.me/" + SEND_TO + "?text=" + encodeURIComponent(code);
   }
 
   $("name").addEventListener("input", () => { $("go").disabled = !$("name").value.trim(); });

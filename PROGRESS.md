@@ -104,6 +104,34 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > The retry is the same cell 7w, unchanged otherwise. If it fails too, the route is
 > closed.
 >
+> **The retry passed, and it did more than mend strokes — 2026-09-23.** T4, 23
+> minutes, loss 0.077 -> 0.026. On the kept-aside lines, real / broken / mended:
+> pieces per 100 columns 3.08 / 4.72 / **3.03**, ink per column 5.33 / 4.11 /
+> **5.11**, stroke width 1.91 / 1.91 / **1.91** -- joined, not fattened. Then on 7s's
+> 150 lines, locally, against their real target lines:
+>
+> | | real | 7s + tone, paper | + repair |
+> |---|---|---|---|
+> | pieces per 100 columns | 3.33 | 5.18 | **3.73** |
+> | ink per column | 5.32 | 4.56 | **5.20** |
+> | stroke width | 1.91 | 1.91 | **1.91** |
+> | empty columns in the span | 0.25 | 0.31 | **0.28** |
+> | **HWD identity** | 100% | 65.7% | **69.6%** |
+> | detectable (the ten-statistic judge) | 50% | 90.0% | 89.3% |
+>
+> **Identity rose 3.9 points [+2.4, +5.3], paired by writer** -- the first real gain
+> in identity this project has measured, and it came from a post-process that never
+> saw a held-out writer. A whole stroke looks more like the person's hand than a
+> perforated one. The judge barely moved, which is a fact about the judge: its ten
+> statistics are not what people see.
+>
+> Reading, by TrOCR-base on the same 150 lines: **CER 11.3% -> 9.9%**, below the
+> real lines' own 10.8% -- a whole stroke reads better. Missing a word 11.3% ->
+> 12.0%, which is 17 lines of 150 against 18: the network can only add ink, so it
+> cannot take a word out, and the move is one line. Criteria 1 and 2 passed;
+> criterion 3 is Amri's 20 trials on the page (rebuilt with the mended lines, same
+> link), looking at A and B only.
+>
 > **Bug fixed:** `hwd._load_hwd`'s DataLoader patch used `functools.partial`, which
 > the package's own `num_workers=1` overrode, so on Windows a worker still spawned
 > and died on `editdistance` -- a local HWD run hung. Now forced to 0; the test
