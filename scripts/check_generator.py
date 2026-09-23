@@ -41,7 +41,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generator", default="eruku")
     parser.add_argument("--lines", type=int, default=3)
-    parser.add_argument("--style-refs", type=int, default=4, help="as the run will be made")
+    parser.add_argument(
+        "--style-refs",
+        type=int,
+        default=1,
+        help="style lines per draw, as the run will make them. Above 1 they are "
+        "JOINED into one wide image, which is what the quality control never does "
+        "-- it hands the model one line per draw -- and what broke Emuru in T27.",
+    )
     parser.add_argument("--cfg-scale", type=float, default=None)
     parser.add_argument("--device", default="cuda")
     args, overrides = parser.parse_known_args(argv)

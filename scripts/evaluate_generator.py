@@ -333,6 +333,14 @@ def main(argv: list[str] | None = None) -> int:
         "See nib.models.candidates.OMISSION_SUPPORT.",
     )
     parser.add_argument(
+        "--join-style",
+        action="store_true",
+        help="allow one draw to be given several style lines JOINED into one wide "
+        "image. Off by default because it is not what the system does -- the quality "
+        "control hands the model one line per draw -- and because joining broke Emuru "
+        "in T27 (identity 42%, CER 60%) and made Eruku draw an empty line at 142 s.",
+    )
+    parser.add_argument(
         "--save-draws",
         action="store_true",
         help="save every draw and what was measured of it, not only the one kept, "
@@ -441,6 +449,15 @@ def main(argv: list[str] | None = None) -> int:
         suffix += f"_{args.tag}"
     out_dir = get_path(cfg, "outputs") / f"eval_{args.generator}_{args.unit}{suffix}"
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
+
+    if args.candidates == 1 and args.style_refs > 1 and not args.join_style:
+        print(
+            f"--style-refs {args.style_refs} with --candidates 1 would JOIN the style "
+            "lines into one wide image, which is not what the system does and what "
+            "broke Emuru in T27. Use --candidates above 1 so each draw gets one line, "
+            "or --style-refs 1, or --join-style to measure the joining on purpose."
+        )
+        return 1
 
     pack = PackReader(get_path(cfg, "processed") / f"cvl_{args.unit}_{height}.lmdb")
     print(f"pack               {pack.path.name}  ({pack.header.source}, {len(pack)} records)")

@@ -29,6 +29,17 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > 2026-09-10 on writer retrieval, the metric found a day later to measure sharpness;
 > it has never been measured with HWD identity.
 >
+> **The pre-flight earned itself in its first three minutes.** Cell 7x asked for
+> `--style-refs 4 --candidates 1`, which **joins** the four style lines into one
+> 3,200 px image -- the quality control never does that, it hands the model one line
+> per draw, and joining is what broke Emuru in T27 (identity 42%, CER 60%). Eruku
+> under it drew an empty line (28 px), then two lines 1.8 and 2.0 times as wide as
+> their text, at 142 s a line: 354 minutes for the run, on a comparison that would
+> have measured the joining rather than the model. Fixed: the comparison is
+> `--style-refs 1`, the pre-flight defaults to one style line, and
+> `evaluate_generator.py` now **refuses** one draw with several style lines unless
+> `--join-style` says to measure the joining on purpose.
+>
 > **Built while deciding** (549 tests): `candidates.doubled` refuses a draw that
 > writes a word twice; `CandidateGenerator(on_draws=...)` reports every draw with
 > its reading, its checks and its closeness to the hand, and
