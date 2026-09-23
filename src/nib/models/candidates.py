@@ -42,8 +42,8 @@ longer independent in this mode and should not be read.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from typing import Protocol
 
@@ -430,6 +430,7 @@ class CandidateGenerator:
         width_band: tuple[float, float] = WIDTH_BAND,
         style_by: str = "width",
         extra_draws: int = EXTRA_DRAWS,
+        on_draws: Callable[[GenerationRequest, list[Draw], Draw], None] | None = None,
     ) -> None:
         if candidates < 1:
             raise GeneratorError(f"need at least one candidate, got {candidates}")
@@ -444,6 +445,10 @@ class CandidateGenerator:
         self.width_range = width_range
         self.style_by = style_by
         self.extra_draws = extra_draws
+        self.on_draws = on_draws
+        """Called with every draw of a request and the one kept. A run that records
+        them can try another rule on the same draws without generating again --
+        every run before 2026-09-23 threw three draws in four away."""
         self.hand = hand
         self.selection = SelectionLog(mode="readable" if hand is None else "hand")
         # Over the images this wrapper returns, not over every draw: a rejected
@@ -511,6 +516,8 @@ class CandidateGenerator:
             )
 
         best = self._choose(request, draws)
+        if self.on_draws is not None:
+            self.on_draws(request, draws, best)
         if empty_draws:
             self.empties.retried += 1
         if used == 1:
@@ -567,22 +574,12 @@ class CandidateGenerator:
             return readable[0]
 
         page = self._page(request)
-        vectors = _unit(self.hand([draw.image for draw in readable]))
-        similarities = vectors @ page
-        scored = [
-            Draw(
-                d.image,
-                d.score,
-                d.style_index,
-                d.truncated,
-                d.overrun,
-                d.omission,
-                d.width_ratio,
-                d.reading,
-                float(s),
-            )
-            for d, s in zip(readable, similarities, strict=True)
-        ]
+        # Every draw is measured against the hand, not only the readable ones, so a
+        # run that saves its draws can be re-selected by another rule afterwards.
+        similarities = _unit(self.hand([draw.image for draw in draws])) @ page
+        for index, draw in enumerate(draws):
+            draws[index] = replace(draw, similarity=float(similarities[index]))
+        scored = [draw for draw in draws if self._readable(draw)]
         best = max(scored, key=lambda draw: draw.similarity)
         if best.image is not readable[0].image:
             self.selection.moved_by_hand += 1

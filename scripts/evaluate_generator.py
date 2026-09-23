@@ -333,6 +333,13 @@ def main(argv: list[str] | None = None) -> int:
         "See nib.models.candidates.OMISSION_SUPPORT.",
     )
     parser.add_argument(
+        "--save-draws",
+        action="store_true",
+        help="save every draw and what was measured of it, not only the one kept, "
+        "so another rule for choosing between them can be tried without generating "
+        "again. About four times the images.",
+    )
+    parser.add_argument(
         "--extra-draws",
         type=int,
         default=None,
@@ -498,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
             ),
             hand=hand,
             style_by=args.style_by,
+            on_draws=_draw_recorder(out_dir) if args.save_draws else None,
             extra_draws=(
                 candidates_mod.EXTRA_DRAWS if args.extra_draws is None else args.extra_draws
             ),
@@ -929,6 +937,49 @@ def _save_analysis(out_dir, **arrays) -> None:
     """
     np.savez_compressed(out_dir / "analysis.npz", **{k: np.asarray(v) for k, v in arrays.items()})
     print(f"\nanalysis          {out_dir / 'analysis.npz'}  (re-examine without a GPU)")
+
+
+def _draw_recorder(out_dir: Path):
+    """Save every draw of every request, and what was measured of it.
+
+    Runs before 2026-09-23 kept one draw in four and threw the rest away, so
+    trying another rule for choosing between them cost another run of the model.
+    """
+    folder = out_dir / "draws"
+    folder.mkdir(parents=True, exist_ok=True)
+    records: list[dict] = []
+    written = [0]
+
+    def record(request, draws, best) -> None:
+        index = written[0]
+        written[0] += 1
+        for slot, draw in enumerate(draws):
+            cv2.imwrite(str(folder / f"{index:03d}_{slot}.png"), draw.image)
+            records.append(
+                {
+                    "request": index,
+                    "draw": slot,
+                    "text": request.text,
+                    "style_index": draw.style_index,
+                    "score": round(float(draw.score), 4),
+                    "reading": draw.reading,
+                    "overrun": draw.overrun,
+                    "width_ratio": None if draw.width_ratio is None else round(draw.width_ratio, 4),
+                    "omission": None if draw.omission is None else draw.omission.word,
+                    "omission_support": (
+                        None if draw.omission is None else round(draw.omission.support, 2)
+                    ),
+                    "doubled": draw.doubled,
+                    "truncated": draw.truncated,
+                    "similarity": None if draw.similarity is None else round(draw.similarity, 5),
+                    "kept": draw is best,
+                }
+            )
+        (out_dir / "draws.json").write_text(
+            json.dumps(records, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+
+    return record
 
 
 def _save_generated(out_dir, *, truths, generated, readings=None, omissions=None) -> None:

@@ -6,6 +6,44 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 
 ## Next action
 
+> ### The plasters have run out: Eruku against Emuru, bare — 2026-09-23
+>
+> **Run next: notebook cell 7x** (~2 hours on a T4): the same 150 requests, one
+> draw, no quality control, first Emuru (the control, which has never been run bare
+> on them) and then Eruku. The survey behind it is
+> `docs/research-2026-09-23-generators.md`; the criterion is written there and in
+> the cell: **keep going with Eruku if identity rises 5 points or more with its
+> interval above zero, or if missing-a-word falls by half or more while identity
+> does not fall; otherwise the model question is closed** and the work is the
+> product -- the page engine, a redraw loop, the judges.
+>
+> **Why.** The repair mended the strokes and identity rose to 69.3%, but Amri looked
+> at ten random lines and named what is left: garbled words at the start and end of
+> a line ("And" as "ound", "It" as "ll", "passage" as "panaza"), and one line in
+> eight still missing a word. That is how the model draws, five attempts to train it
+> failed, and selection can only pick the best of four draws of the same model --
+> a plaster with a few points in it at most. Eruku (WACV 2026, the same group) was
+> built against these exact failures, is trained on synthetic fonts alone so our
+> held-out writers stay unseen, and reports on **CVL lines with unseen styles** HWD
+> 1.72 against Emuru's 1.82 and ΔCER **0.04 against 0.13**. We set it aside on
+> 2026-09-10 on writer retrieval, the metric found a day later to measure sharpness;
+> it has never been measured with HWD identity.
+>
+> **Built while deciding** (549 tests): `candidates.doubled` refuses a draw that
+> writes a word twice; `CandidateGenerator(on_draws=...)` reports every draw with
+> its reading, its checks and its closeness to the hand, and
+> `evaluate_generator.py --save-draws` writes them all out -- every run before today
+> kept one draw in four and threw the rest away, so no rule for choosing between
+> them could be tried without generating again. **The rule itself was not run**: it
+> is worth at most a few points and the model question comes first.
+>
+> **The repair, measured in full** (7s's 150 lines, against the real targets): pieces
+> per 100 columns 5.18 -> 3.73 (real 3.33), ink per column 4.56 -> 5.21 (5.32),
+> stroke width unmoved, **identity 65.7% -> 69.3%, +3.6 points [+2.1, +5.0] paired**,
+> CER 11.3% -> 9.9% (real 10.8%), missing a word 11.3% -> 12.0% (one line of 150).
+> The first attempt, which fattened strokes 43%, measures -1.3 identity on the same
+> lines: the criterion caught it.
+>
 > ### 7v closed per-writer fine-tuning of Emuru; people see broken strokes — 2026-09-22
 >
 > **7v ran (T4, 85 s a writer): CLOSED, by the rule set before the run.** Held-out

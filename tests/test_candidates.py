@@ -220,7 +220,8 @@ def test_when_nothing_passes_it_draws_again_and_stops_at_the_first_that_does():
 
 def test_by_hand_the_extra_draws_stop_at_the_first_acceptable_one():
     base = ScriptedGenerator(["zzzzzzzzzz", "zzzzzzzzzz", "hello world", "hello world"])
-    hand = HandEmbedder({3: [1.0, 0.0], 4: [1.0, 0.0]})
+    # every draw is embedded now, readable or not
+    hand = HandEmbedder({1: [0.0, 1.0], 2: [0.0, 1.0], 3: [1.0, 0.0], 4: [1.0, 0.0]})
     wrapper = CandidateGenerator(base, ScriptedReader(), candidates=2, hand=hand, extra_draws=4)
 
     (image,) = wrapper.generate([_request()])
@@ -631,6 +632,28 @@ def test_the_page_is_embedded_once_for_requests_sharing_its_lines():
     # One call for the page, then one per request for its readable draws.
     assert hand.calls == 3
     assert wrapper.selection.as_dict()["mode"] == "hand"
+
+
+def test_every_draw_is_reported_with_the_one_kept():
+    """Runs before 2026-09-23 threw three draws in four away, so no rule for
+    choosing between them could be tried without generating again."""
+    base = ScriptedGenerator(["zzzzzzzzzz", "hello world", "hello world"])
+    hand = HandEmbedder({1: [0.0, 1.0], 2: [1.0, 0.1], 3: [0.9, 0.2]})
+    seen = []
+    wrapper = CandidateGenerator(
+        base,
+        ScriptedReader(),
+        candidates=3,
+        hand=hand,
+        on_draws=lambda r, d, b: seen.append((d, b)),
+    )
+
+    wrapper.generate([_request()])
+
+    (draws, best) = seen[0]
+    assert len(draws) == 3
+    assert any(best is draw for draw in draws)
+    assert all(draw.similarity is not None for draw in draws), "including the unreadable one"
 
 
 def test_zero_candidates_is_refused():
