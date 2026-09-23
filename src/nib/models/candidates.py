@@ -44,6 +44,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Protocol
 
 import numpy as np
@@ -213,6 +214,24 @@ def style_order(
     return sorted(range(len(images)), key=key)
 
 
+def doubled(reading: str, target: str) -> str | None:
+    """A word the reading says twice in a row where the text says it once.
+
+    Emuru sometimes writes a word and then writes it again -- "of our" came back
+    as "own own" on a line the reader still read at 18% CER, well inside
+    :data:`ACCEPT_CER`, so nothing set it aside. A reader rarely invents a
+    repetition of its own: over 7s's 150 kept lines this names 5, and one of them
+    is that line. Repetitions the text itself asks for ("had had") are allowed.
+    """
+    said = [word.lower() for word in reading.split()]
+    asked = [word.lower() for word in target.split()]
+    allowed = {second for first, second in pairwise(asked) if first == second}
+    for first, second in pairwise(said):
+        if first == second and second not in allowed:
+            return second
+    return None
+
+
 def overrun(reading: str, target: str) -> int:
     """The most characters a reading carries beyond either end of the target.
 
@@ -301,6 +320,9 @@ class Draw:
     similarity: float | None = None
     """Cosine similarity to the writer's page, when selecting by hand."""
 
+    doubled: str | None = None
+    """A word this draw writes twice in a row that the text asks for once."""
+
 
 @dataclass
 class SelectionLog:
@@ -327,6 +349,9 @@ class SelectionLog:
 
     rejected_for_width: int = 0
     """Draws that read well enough but were the wrong width for their text."""
+
+    rejected_for_doubling: int = 0
+    """Draws that read well enough but wrote a word twice."""
 
     chosen_scores: list[float] = field(default_factory=list)
     """The selector's CER for each kept image, in request order."""
@@ -355,6 +380,7 @@ class SelectionLog:
             "rejected_for_overrun": self.rejected_for_overrun,
             "rejected_for_omission": self.rejected_for_omission,
             "rejected_for_width": self.rejected_for_width,
+            "rejected_for_doubling": self.rejected_for_doubling,
         }
 
     def summary(self) -> str:
@@ -375,6 +401,7 @@ class SelectionLog:
             f"  {self.rejected_for_overrun} read well but wrote beyond the text, set aside",
             f"  {self.rejected_for_omission} read well but left a word out, set aside",
             f"  {self.rejected_for_width} read well but was the wrong width for the text",
+            f"  {self.rejected_for_doubling} read well but wrote a word twice",
             f"  {self.none_accepted} kept as the best of an unreadable set",
             "  scored by selectors, not by the models that measure below",
         ]
@@ -468,6 +495,8 @@ class CandidateGenerator:
                     self.selection.rejected_for_omission += 1
                 if not self._in_band(draw):
                     self.selection.rejected_for_width += 1
+                if draw.doubled is not None:
+                    self.selection.rejected_for_doubling += 1
             if self.hand is None and self._readable(draw):
                 break
 
@@ -503,6 +532,7 @@ class CandidateGenerator:
             and draw.overrun <= self.accept_overrun
             and not self._omitted(draw)
             and self._in_band(draw)
+            and draw.doubled is None
         )
 
     def _omitted(self, draw: Draw) -> bool:
@@ -526,7 +556,12 @@ class CandidateGenerator:
             # characters than misreading the line that carried it.
             return min(
                 draws,
-                key=lambda draw: (draw.score > self.accept_cer, self._omitted(draw), draw.score),
+                key=lambda draw: (
+                    draw.score > self.accept_cer,
+                    self._omitted(draw),
+                    draw.doubled is not None,
+                    draw.score,
+                ),
             )
         if self.hand is None:
             return readable[0]
@@ -593,6 +628,7 @@ class CandidateGenerator:
             self.verifier.omissions([image], [request.text])[0] if self.verifier else None,
             None if not expected else float(image.shape[1]) / expected,
             reading,
+            doubled=doubled(reading, request.text),
         )
 
     def _last_truncation(self, request: GenerationRequest, draw: Draw):

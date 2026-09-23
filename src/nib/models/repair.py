@@ -27,6 +27,7 @@ skip connections that carry the fine detail across.
 
 from __future__ import annotations
 
+import cv2
 import numpy as np
 
 LEVEL = (0.97, 1.0)
@@ -40,8 +41,39 @@ CUTS = (3.0, 15.0)
 DEPTH = (0.05, 0.45)
 """How little of the ink is left inside a cut."""
 
-CUT = (1, 3)
-"""A cut's width, in latent slices -- 8 to 24 pixels."""
+CUT = (1, 4)
+"""A cut's width, in latent slices -- 8 to 32 pixels. Wide enough at the top to
+teach the network to bridge a break that splits a word in two: "Lines" came back
+as "L ines" on a line nothing else caught."""
+
+BARS = (0, 2)
+"""Thin horizontal strokes rubbed out of a line before it is broken further.
+The eye catches a letter that lost its crossbar at once -- an A drawn as a bow,
+"fixed" read as "fined" -- and a cut in the latents cannot take a whole bar out,
+only a piece of one, so it is done to the image instead."""
+
+BAR_LENGTH = 9
+"""A horizontal run at least this long, and at most :data:`BAR_HEIGHT` tall, is a
+bar: the crossbar of an A or a t, not a stroke of the writing's own body."""
+
+BAR_HEIGHT = 4
+
+
+def rub_out_bars(image: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A grey line with a few of its thin horizontal strokes rubbed out."""
+    wanted = rng.integers(*BARS) if BARS[1] > BARS[0] else 0
+    if wanted <= 0:
+        return image
+    ink = (image < 160).astype(np.uint8)
+    flat = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((1, BAR_LENGTH), np.uint8))
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(flat, 8)
+    bars = [i for i in range(1, count) if stats[i, cv2.CC_STAT_HEIGHT] <= BAR_HEIGHT]
+    if not bars:
+        return image
+    out = image.copy()
+    for index in rng.choice(bars, size=min(wanted, len(bars)), replace=False):
+        out[labels == index] = 255
+    return out
 
 
 def weakening(shape: tuple[int, ...], rng: np.random.Generator) -> np.ndarray:

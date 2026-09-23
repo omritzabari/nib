@@ -45,3 +45,25 @@ def test_the_breaking_cuts_pieces_out_and_leaves_the_rest_of_the_line():
     assert field.min() >= 0.0 and field.max() <= 1.0
     assert (field >= repair.LEVEL[0]).mean() > 0.5, "most of the line survives"
     assert (field <= repair.DEPTH[1]).any(), "and some of it is cut"
+
+
+def test_a_thin_crossbar_is_rubbed_out_and_the_rest_of_the_letter_stays():
+    """The eye catches an A drawn without its crossbar at once, and a cut in the
+    latents can take a piece out of a bar but never the whole of one."""
+    image = np.full((64, 200), 255, dtype=np.uint8)
+    image[20:50, 40:44] = 0  # an upright stroke
+    image[32:35, 30:60] = 0  # its crossbar, thin and long
+
+    out = repair.rub_out_bars(image, np.random.default_rng(0))
+
+    assert (out[32:35, 55:60] == 255).all(), "the bar is gone"
+    assert (out[45:50, 40:44] == 0).all(), "the upright stroke is untouched"
+
+
+def test_a_line_without_bars_comes_back_as_it_was():
+    image = np.full((64, 120), 255, dtype=np.uint8)
+    image[20:50, 40:44] = 0
+
+    out = repair.rub_out_bars(image, np.random.default_rng(0))
+
+    np.testing.assert_array_equal(out, image)

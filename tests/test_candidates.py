@@ -389,6 +389,30 @@ class ScriptedVerifier:
         return out
 
 
+def test_a_draw_that_writes_a_word_twice_is_redrawn():
+    """Emuru wrote "of our" as "own own" and the reader still read the line at 18%
+    CER, well inside ACCEPT_CER, so nothing set it aside."""
+    text = "the quick brown fox jumps over"
+    base = ScriptedGenerator(["the quick quick brown fox jumps over", text])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    (image,) = wrapper.generate([_request(text=text)])
+
+    assert len(base.calls) == 2, "the doubled draw reads well enough to be kept"
+    assert int(image[30, 10]) == 2
+    assert wrapper.selection.rejected_for_doubling == 1
+
+
+def test_a_word_the_text_itself_repeats_is_not_a_doubling():
+    base = ScriptedGenerator(["that that is all"])
+    wrapper = CandidateGenerator(base, ScriptedReader(), candidates=4)
+
+    wrapper.generate([_request(text="that that is all")])
+
+    assert len(base.calls) == 1
+    assert wrapper.selection.rejected_for_doubling == 0
+
+
 def test_a_draw_that_left_a_word_out_is_redrawn():
     # Draw 1 is "warm at noon" written without "at": +26.2 on Amri's page.
     base = ScriptedGenerator(["hello world", "hello world"])

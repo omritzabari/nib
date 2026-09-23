@@ -3,9 +3,10 @@
     python scripts/train_repair.py --device cuda
 
 Lines by the training-split writers only -- none of the held-out writers every
-evaluation is measured on. Each step takes random crops, breaks them through
-Emuru's own VAE (:func:`nib.models.repair.weakening`), and teaches the network
-to give back the real crop. A fixed 5% of the lines is kept aside, and at the end
+evaluation is measured on. Each step takes random crops, rubs out a thin
+horizontal stroke or two (:func:`nib.models.repair.rub_out_bars`), cuts pieces
+out of the rest through Emuru's own VAE (:func:`nib.models.repair.weakening`),
+and teaches the network to give back the real crop. A fixed 5% of the lines is kept aside, and at the end
 their broken and mended versions are compared with the real ones on the stroke
 statistics people see: pieces of ink per 100 columns, ink per column, stroke
 width. Saves the weights for :func:`nib.models.repair.load`.
@@ -76,7 +77,10 @@ def main(argv: list[str] | None = None) -> int:
     for step in range(1, args.steps + 1):
         crops = np.stack([_crop(rng.choice(train), args.crop, rng) for _ in range(args.batch)])
         target = torch.from_numpy(crops.astype(np.float32) / 255.0)[:, None].to(args.device)
-        broken = repair.break_like_emuru(vae, target, np_rng)
+        # The bars are rubbed out of the image, the rest is cut in the latents.
+        rubbed = np.stack([repair.rub_out_bars(crop, np_rng) for crop in crops])
+        rubbed = torch.from_numpy(rubbed.astype(np.float32) / 255.0)[:, None].to(args.device)
+        broken = repair.break_like_emuru(vae, rubbed, np_rng)
         mended = network(broken)
         # Plain L1: the network can only add ink, so nothing pushes it to erase and
         # nothing should make false ink cheaper than missing ink. Weighting the real
@@ -99,9 +103,10 @@ def main(argv: list[str] | None = None) -> int:
     columns = [detectability.NAMES.index(name) for name in REPORTED]
     table = {"real": [], "broken": [], "mended": []}
     for image in held:
-        target = torch.from_numpy(image.astype(np.float32) / 255.0)[None, None].to(args.device)
-        target = torch.nn.functional.pad(target, (0, -image.shape[1] % 8), value=1.0)
-        broken = repair.break_like_emuru(vae, target, np_rng)
+        rubbed = repair.rub_out_bars(image, np_rng)
+        line = torch.from_numpy(rubbed.astype(np.float32) / 255.0)[None, None].to(args.device)
+        line = torch.nn.functional.pad(line, (0, -image.shape[1] % 8), value=1.0)
+        broken = repair.break_like_emuru(vae, line, np_rng)
         broken = (broken[0, 0, :, : image.shape[1]].cpu().numpy() * 255).astype(np.uint8)
         for name, line in (
             ("real", image),

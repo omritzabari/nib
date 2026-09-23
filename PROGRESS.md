@@ -125,6 +125,40 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > perforated one. The judge barely moved, which is a fact about the judge: its ten
 > statistics are not what people see.
 >
+> **Amri looked at eight mended lines and named four faults; three were real, and
+> the fourth was ours — 2026-09-23.** Looked at by eye, at 3x, with the selector's
+> own reading of each beside it:
+>
+> | line | what the eye sees | what the selector read | why it passed |
+> |---|---|---|---|
+> | 12 | "of our" written as "ow ow" | "a sub-variety **own own** older cultivated plant" | the reader saw it; `ACCEPT_CER` is 0.5 |
+> | 40 | "fixed" without the x's crossbar | "remaining **fined** in their places" | the same |
+> | 57 | "Lines" split into "L ines" | "**I . ines** . Triangles Squares" | the same |
+> | 68 | the A drawn without its crossbar | the whole line, correctly | no reader can see it |
+>
+> **Missing commas are not a fault of ours:** CVL's line texts carry no punctuation
+> at all (0 of the 150 targets), so the model is never asked for the commas the
+> writer wrote. It is a leak in the blind test, not a defect -- and a small one: only
+> 12% of the real target lines carry two or more comma-like marks, while the
+> generated lines carry more small low marks than the real ones (2.47 against 0.65 a
+> line), so the cue does not run one way. A real user types their own punctuation.
+>
+> **Three checks were measured before building any of them, and two were dropped:**
+> a tighter `ACCEPT_CER` (the selector reads *real* lines at a median 10% CER and
+> 26.5% of them above 0.20, so tightening rejects good lines and pulls the hand
+> toward what a machine reads easily); counting the line's word gaps against the
+> text's spaces (noisier on real lines, 33%, than on generated, 11%). What survived:
+> **`candidates.doubled`** -- a word the reading says twice that the text asks for
+> once. It names 5 of 7s's 150 kept lines, including line 12, and a draw it names is
+> now redrawn (`rejected_for_doubling`).
+>
+> **The repair's second version, to run:** `rub_out_bars` rubs a thin horizontal
+> stroke or two out of the training line before the cuts, so the network learns to
+> put a crossbar back (lines 40 and 68), and cuts reach 32 px wide so it can bridge a
+> break that splits a word (line 57). The damage still matches Emuru's: 4.56 pieces
+> per 100 columns at 75% of the ink. Same criteria as the first run, plus: Claude
+> looks at twenty mended lines and reports what it sees before Amri is asked to.
+>
 > Reading, by TrOCR-base on the same 150 lines: **CER 11.3% -> 9.9%**, below the
 > real lines' own 10.8% -- a whole stroke reads better. Missing a word 11.3% ->
 > 12.0%, which is 17 lines of 150 against 18: the network can only add ink, so it
