@@ -152,12 +152,20 @@ Live task state. Updated at the end of every task. A fresh session reads this to
 > once. It names 5 of 7s's 150 kept lines, including line 12, and a draw it names is
 > now redrawn (`rejected_for_doubling`).
 >
-> **The repair's second version, to run:** `rub_out_bars` rubs a thin horizontal
-> stroke or two out of the training line before the cuts, so the network learns to
-> put a crossbar back (lines 40 and 68), and cuts reach 32 px wide so it can bridge a
-> break that splits a word (line 57). The damage still matches Emuru's: 4.56 pieces
-> per 100 columns at 75% of the ink. Same criteria as the first run, plus: Claude
-> looks at twenty mended lines and reports what it sees before Amri is asked to.
+> **The repair's second version:** `rub_out_bars` rubs a thin horizontal stroke or
+> two out of the training line before the cuts, so the network learns to put a
+> crossbar back (lines 40 and 68), and cuts reach 32 px wide so it can bridge a break
+> that splits a word (line 57). The damage still matches Emuru's: 4.56 pieces per 100
+> columns at 75% of the ink. Same criteria as the first run, plus: Claude looks at
+> twenty mended lines and reports what it sees before Amri is asked to.
+>
+> **It ran (T4, 22 minutes, loss 0.079 -> 0.028) and passed criterion 1 again.** On
+> the kept-aside lines, real / broken / mended: pieces per 100 columns 3.08 / 4.84 /
+> **3.14**, ink per column 5.33 / 3.93 / **5.03**, stroke width 1.91 / 1.91 /
+> **1.91**. Weights on Drive at `results/repair/repair.pt`; the first version is kept
+> beside them here as `outputs/repair/repair_v1.pt` to compare against. **GPU credits
+> are short, so everything left is local**: the measurement on 7s's saved lines, the
+> look by eye, the page, and the judges.
 >
 > Reading, by TrOCR-base on the same 150 lines: **CER 11.3% -> 9.9%**, below the
 > real lines' own 10.8% -- a whole stroke reads better. Missing a word 11.3% ->
